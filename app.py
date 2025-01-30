@@ -243,8 +243,8 @@ else:
     """)
     
     auth_url = get_authorization_url()
-    st.markdown(f'<a href="{auth_url}" target="_self"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
-               unsafe_allow_html=True)
+    st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
+            unsafe_allow_html=True)
     
     st.markdown("""
     ---
