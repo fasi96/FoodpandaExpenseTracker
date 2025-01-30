@@ -96,7 +96,11 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             except:
                 price = decoded_content.split('Received')[1].split('Rs.')[1].split('\n')[0].strip()
 
-            price = float(price.replace(',', ''))
+            try:
+                price = float(price.replace(',', ''))
+            except:
+                price = 0
+                
             data_dict['date'].append(date)
             data_dict['price'].append(price)
             
