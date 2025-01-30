@@ -196,62 +196,145 @@ def get_gmail_messages(credentials):
     recent_orders = df.sort_values('date', ascending=False).head()
     recent_orders['date'] = recent_orders['date'].dt.strftime('%Y-%m-%d %H:%M')
     st.dataframe(recent_orders[['date', 'price']], hide_index=True)
+
 # Streamlit UI
 st.set_page_config(
     page_title="FoodPanda Expense Tracker",
     page_icon="🐼"
 )
 
-st.title("🐼 FoodPanda Expense Tracker")
-st.markdown("Track and analyze your FoodPanda ordering habits")
-
-# Handle OAuth callback
-if "code" in st.query_params:
-    try:
-        auth_code = st.query_params["code"]
-        if isinstance(auth_code, list):
-            auth_code = auth_code[0]
-        tokens = exchange_code_for_tokens(auth_code)
-        st.session_state["credentials"] = {
-            "token": tokens["access_token"],
-            "refresh_token": tokens.get("refresh_token"),
-            "token_uri": TOKEN_URL,
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "scopes": SCOPES,
-        }
-        st.query_params.clear()
-        st.rerun()
-    except Exception as e:
-        st.error(f"Authentication failed: {str(e)}")
-
-# Check if user is already logged in
-if st.session_state["credentials"]:
-    st.success("✅ Connected to Gmail")
-    credentials = google.oauth2.credentials.Credentials(**st.session_state["credentials"])
-    
-    days_to_analyze = st.slider("Select days to analyze", 30, 365, 365)
-    
-    if st.button("📊 Analyze My Food Expenses", type="primary"):
-        with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
-            get_gmail_messages(credentials)
-    
-    if st.button("🔓 Disconnect Gmail", type="secondary"):
-        del st.session_state["credentials"]
-        st.rerun()
-
+# Check query parameters for page navigation
+if "page" in st.query_params:
+    current_page = st.query_params["page"]
 else:
+    current_page = "Home"
+
+# Add a navigation menu in the sidebar
+page = st.sidebar.radio("Navigation", ["Home", "Privacy Policy"], index=0 if current_page == "Home" else 1)
+
+# Update URL when page changes
+if page == "Privacy Policy" and current_page != "Privacy Policy":
+    st.query_params["page"] = "Privacy Policy"
+elif page == "Home" and current_page != "Home":
+    st.query_params.clear()
+
+if page == "Privacy Policy":
+    st.title("Privacy Policy")
     st.markdown("""
-    ### 🔑 Connect Your Gmail
-    To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
+    **Last Updated:** 2025-01-31
+
+    Thank you for using the **FoodPanda Expense Tracker** (the "App"). Your privacy is important to us. This Privacy Policy explains how we collect, use, and protect your information when you use the App.
+
+    ### **1. Information We Collect**
+    The App accesses your Gmail account to retrieve FoodPanda order confirmation emails. Specifically, we collect the following information:
+    - **Email Metadata**: The date and sender of FoodPanda order confirmation emails.
+    - **Email Content**: The total order amount (price) extracted from the email body.
+
+    We do **not** collect or store:
+    - Your Gmail login credentials (email address or password).
+    - Any personal information beyond what is necessary to analyze your FoodPanda expenses.
+    - Any emails or data unrelated to FoodPanda order confirmations.
+
+    ### **2. How We Use Your Information**
+    The information we collect is used solely for the following purposes:
+    - To analyze your FoodPanda expenses and provide insights into your spending habits.
+    - To display your total spending, average order value, and monthly breakdowns within the App.
+
+    We do **not**:
+    - Share your data with third parties.
+    - Use your data for advertising or marketing purposes.
+    - Store your data permanently. All data is processed in real-time and discarded after your session ends.
+
+    ### **3. Data Storage and Security**
+    - **Temporary Storage**: The App processes your data in real-time and does not store it permanently. Once your session ends, all data is discarded.
+    - **Security**: We use industry-standard security practices to protect your data during transmission and processing. However, no method of data transmission over the internet is 100% secure, and we cannot guarantee absolute security.
+
+    ### **4. Google OAuth and Permissions**
+    To access your Gmail account, the App uses Google OAuth 2.0 for authentication. This process grants the App limited access to your Gmail account, specifically:
+    - **Read-Only Access**: The App can only read FoodPanda order confirmation emails. It cannot modify, delete, or send emails on your behalf.
+    - **Scope Limitation**: The App requests the minimum necessary permissions (`https://www.googleapis.com/auth/gmail.readonly`) to function.
+
+    You can revoke the App's access to your Gmail account at any time by visiting your [Google Account Security Settings](https://myaccount.google.com/permissions).
+
+    ### **5. Third-Party Services**
+    The App uses the following third-party services:
+    - **Google APIs**: To authenticate your Gmail account and retrieve order confirmation emails.
+    - **Streamlit Cloud**: To host the App and provide the user interface.
+
+    These services have their own privacy policies, and we encourage you to review them:
+    - [Google Privacy Policy](https://policies.google.com/privacy)
+    - [Streamlit Privacy Policy](https://streamlit.io/privacy-policy)
+
+    ### **6. Your Rights**
+    You have the following rights regarding your data:
+    - **Access**: You can request a summary of the data processed by the App during your session.
+    - **Deletion**: Since the App does not store your data permanently, no deletion is necessary. You can revoke the App's access to your Gmail account at any time.
+    - **Correction**: If you believe the App has processed incorrect data, please contact us.
+
+    ### **7. Changes to This Privacy Policy**
+    We may update this Privacy Policy from time to time. Any changes will be posted on this page, and the "Last Updated" date will be revised. We encourage you to review this policy periodically.
+
+    ### **8. Contact Us**
+    If you have any questions or concerns about this Privacy Policy or the App's data practices, please contact us at:
+    - **Email:** [Your Email Address]
+    - **Website:** [Your Website URL]
+
+    ### **9. Consent**
+    By using the **FoodPanda Expense Tracker**, you consent to the terms of this Privacy Policy.
     """)
-    
-    auth_url = get_authorization_url()
-    st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
-            unsafe_allow_html=True)
-    
-    st.markdown("""
-    ---
-    ##### 🔒 Privacy Note
-    This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
-    """)
+
+
+else:  # Home page
+    st.title("🐼 FoodPanda Expense Tracker")
+    st.markdown("Track and analyze your FoodPanda ordering habits")
+
+    # Handle OAuth callback
+    if "code" in st.query_params:
+        try:
+            auth_code = st.query_params["code"]
+            if isinstance(auth_code, list):
+                auth_code = auth_code[0]
+            tokens = exchange_code_for_tokens(auth_code)
+            st.session_state["credentials"] = {
+                "token": tokens["access_token"],
+                "refresh_token": tokens.get("refresh_token"),
+                "token_uri": TOKEN_URL,
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "scopes": SCOPES,
+            }
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Authentication failed: {str(e)}")
+
+    # Check if user is already logged in
+    if st.session_state["credentials"]:
+        st.success("✅ Connected to Gmail")
+        credentials = google.oauth2.credentials.Credentials(**st.session_state["credentials"])
+        
+        days_to_analyze = st.slider("Select days to analyze", 30, 365, 365)
+        
+        if st.button("📊 Analyze My Food Expenses", type="primary"):
+            with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
+                get_gmail_messages(credentials)
+        
+        if st.button("🔓 Disconnect Gmail", type="secondary"):
+            del st.session_state["credentials"]
+            st.rerun()
+
+    else:
+        st.markdown("""
+        ### 🔑 Connect Your Gmail
+        To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
+        """)
+        
+        auth_url = get_authorization_url()
+        st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
+                unsafe_allow_html=True)
+        
+        st.markdown("""
+        ---
+        ##### 🔒 Privacy Note
+        This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
+        """)
