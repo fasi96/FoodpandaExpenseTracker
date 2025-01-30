@@ -11,7 +11,7 @@ import time
 # Google OAuth Configuration
 CLIENT_ID = st.secrets["google"]["client_id"]
 CLIENT_SECRET = st.secrets["google"]["client_secret"]
-REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  # Make sure this matches your Google Cloud Console settings
+REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -27,7 +27,7 @@ def get_authorization_url():
         "response_type": "code",
         "redirect_uri": REDIRECT_URI,
         "scope": " ".join(SCOPES),
-        "access_type": "online",
+        "access_type": "offline",
         "prompt": "consent",
     }
     return f"{AUTHORIZATION_URL}?{urlencode(params)}"
@@ -41,19 +41,10 @@ def exchange_code_for_tokens(auth_code):
         "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_URI,
     }
-
     response = requests.post(TOKEN_URL, data=data)
     if not response.ok:
         raise Exception(f"Failed to exchange code: {response.text}")
-    
-    token_data = response.json()
-    if 'access_token' not in token_data:
-        raise Exception(f"No access token in response: {token_data}")
-
-    st.write("Query Params:", st.query_params)
-    st.write("Auth Code:", auth_code)
-    st.write("Tokens:", token_data)
-    return token_data
+    return response.json()
 
 def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
     # indicate that it will only process 1000 emails
@@ -201,7 +192,6 @@ def get_gmail_messages(credentials):
     recent_orders = df.sort_values('date', ascending=False).head()
     recent_orders['date'] = recent_orders['date'].dt.strftime('%Y-%m-%d %H:%M')
     st.dataframe(recent_orders[['date', 'price']], hide_index=True)
-
 # Streamlit UI
 st.set_page_config(
     page_title="FoodPanda Expense Tracker",
@@ -214,31 +204,22 @@ st.markdown("Track and analyze your FoodPanda ordering habits")
 # Handle OAuth callback
 if "code" in st.query_params:
     try:
-        # Get the authorization code from query parameters
         auth_code = st.query_params["code"]
-        if isinstance(auth_code, list):  # Handle potential list return
+        if isinstance(auth_code, list):
             auth_code = auth_code[0]
-            
-        # Exchange the authorization code for tokens
-        token_response = exchange_code_for_tokens(auth_code)
-        
-        # Store the credentials in session state
+        tokens = exchange_code_for_tokens(auth_code)
         st.session_state["credentials"] = {
-            "token": token_response["access_token"],
-            "refresh_token": token_response.get("refresh_token"),
+            "token": tokens["access_token"],
+            "refresh_token": tokens.get("refresh_token"),
             "token_uri": TOKEN_URL,
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
             "scopes": SCOPES,
         }
-        
-        # Clear the URL parameters and rerun
         st.query_params.clear()
         st.rerun()
     except Exception as e:
         st.error(f"Authentication failed: {str(e)}")
-        st.write("Debug info:")
-        st.write(f"Query params: {st.query_params}")
 
 # Check if user is already logged in
 if st.session_state["credentials"]:
@@ -251,9 +232,6 @@ if st.session_state["credentials"]:
         with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
             get_gmail_messages(credentials)
     
-    # Add a small info text about data source
-    st.info("💡 Data is fetched from your Gmail inbox using FoodPanda order confirmation emails", icon="ℹ️")
-
     if st.button("🔓 Disconnect Gmail", type="secondary"):
         del st.session_state["credentials"]
         st.rerun()
@@ -264,12 +242,10 @@ else:
     To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
     """)
     
-    # Create login button with redirect inside the same tab
     auth_url = get_authorization_url()
     st.markdown(f'<a href="{auth_url}" target="_self"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
                unsafe_allow_html=True)
     
-    # Add privacy note
     st.markdown("""
     ---
     ##### 🔒 Privacy Note
