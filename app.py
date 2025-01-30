@@ -27,7 +27,7 @@ def get_authorization_url():
         "response_type": "code",
         "redirect_uri": REDIRECT_URI,
         "scope": " ".join(SCOPES),
-        "access_type": "offline",
+        "access_type": "online",
         "prompt": "consent",
     }
     return f"{AUTHORIZATION_URL}?{urlencode(params)}"
