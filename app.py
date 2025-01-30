@@ -41,6 +41,7 @@ def exchange_code_for_tokens(auth_code):
         "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_URI,
     }
+
     response = requests.post(TOKEN_URL, data=data)
     if not response.ok:
         raise Exception(f"Failed to exchange code: {response.text}")
@@ -48,6 +49,10 @@ def exchange_code_for_tokens(auth_code):
     token_data = response.json()
     if 'access_token' not in token_data:
         raise Exception(f"No access token in response: {token_data}")
+
+    st.write("Query Params:", st.query_params)
+    st.write("Auth Code:", auth_code)
+    st.write("Tokens:", token_data)
     return token_data
 
 def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
