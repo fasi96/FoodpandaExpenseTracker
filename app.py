@@ -7,11 +7,13 @@ import pandas as pd
 import base64
 import datetime
 import time
+import re
 
 # Google OAuth Configuration
 CLIENT_ID = st.secrets["google"]["client_id"]
 CLIENT_SECRET = st.secrets["google"]["client_secret"]
 REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
+# REDIRECT_URI = "http://localhost:8501"
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -78,7 +80,7 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             return
 
         total_messages = len(messages)
-        data_dict = {'date': [], 'price': []}
+        data_dict = {'date': [], 'price': [], 'restaurant': []}
 
         for i, msg in enumerate(messages, 1):
             msg_details = service.users().messages().get(
@@ -101,8 +103,16 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             except:
                 price = 0
                 
+            # Extract restaurant name
+            try:
+                restaurant = re.search(r'Partner:\s*Name:\s*(.+)', decoded_content)
+                restaurant = restaurant.group(1).strip() if restaurant else "Unknown"
+            except:
+                restaurant = "Unknown"
+            
             data_dict['date'].append(date)
             data_dict['price'].append(price)
+            data_dict['restaurant'].append(restaurant)
             
             # Update running totals and progress
             running_total += price
@@ -130,7 +140,7 @@ def get_gmail_messages(credentials):
     service = googleapiclient.discovery.build("gmail", "v1", credentials=credentials)
     
     # Get expenses data
-    data_dict = {'date': [], 'price': []}
+    data_dict = {'date': [], 'price': [], 'restaurant': []}
     try:
         service_results = get_emails_from_sender(service, "no-reply@mail.foodpanda.pk", days=days_to_analyze)
         if service_results:
@@ -196,6 +206,58 @@ def get_gmail_messages(credentials):
     recent_orders = df.sort_values('date', ascending=False).head()
     recent_orders['date'] = recent_orders['date'].dt.strftime('%Y-%m-%d %H:%M')
     st.dataframe(recent_orders[['date', 'price']], hide_index=True)
+
+    # Restaurant Analysis
+    st.subheader("🏪 Restaurant Analysis")
+    
+    # Overall top restaurants
+    restaurant_summary = df.groupby('restaurant').agg({
+        'price': ['sum', 'count', 'mean']
+    }).round(2)
+    restaurant_summary.columns = ['Total Spent', 'Number of Orders', 'Average Order']
+    restaurant_summary = restaurant_summary.sort_values('Number of Orders', ascending=False)
+    
+    # Display top 10 most ordered from restaurants
+    st.markdown("#### Top 10 Most Ordered From Restaurants")
+    top_restaurants = restaurant_summary.head(10)
+    st.dataframe(top_restaurants)
+    
+    # Monthly top 3 restaurants
+    st.markdown("#### Monthly Top 3 Restaurants")
+    df['month_year'] = pd.to_datetime(df['date']).dt.strftime('%B %Y')
+    
+    # Sort months in descending order
+    months = sorted(df['month_year'].unique(), key=lambda x: pd.to_datetime(x, format='%B %Y'), reverse=True)
+    
+    monthly_summary = []
+    for month in months:
+        month_data = df[df['month_year'] == month]
+        top_3 = month_data.groupby('restaurant').agg({
+            'price': 'sum',
+            'restaurant': 'count'
+        }).round(2)
+        top_3.columns = ['Total Spent', 'Orders']
+        top_3 = top_3.sort_values('Total Spent', ascending=False).head(3)
+        
+        # Format the top 3 restaurants as strings
+        formatted_top_3 = [
+            f"{restaurant} ({orders} - PKR {spent:,.0f})"
+            for restaurant, (spent, orders) in top_3.iterrows()
+        ]
+        
+        # Pad with empty strings if less than 3 restaurants
+        while len(formatted_top_3) < 3:
+            formatted_top_3.append("")
+            
+        monthly_summary.append({
+            'Month': month,
+            '1st': formatted_top_3[0],
+            '2nd': formatted_top_3[1],
+            '3rd': formatted_top_3[2]
+        })
+    
+    monthly_summary_df = pd.DataFrame(monthly_summary)
+    st.dataframe(monthly_summary_df, hide_index=True)
 
 # Streamlit UI
 st.set_page_config(
