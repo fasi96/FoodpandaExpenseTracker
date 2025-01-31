@@ -8,6 +8,7 @@ import base64
 import datetime
 import time
 import re
+import plotly.express as px
 
 # Google OAuth Configuration
 CLIENT_ID = st.secrets["google"]["client_id"]
@@ -208,6 +209,173 @@ def get_gmail_messages(credentials):
 
     # Restaurant Analysis
     st.subheader("🏪 Restaurant Analysis")
+    
+    # Add Time of Day Analysis
+    st.subheader("⏰ Order Timing Analysis")
+    
+    # Extract hour from datetime and create a copy of relevant columns
+    timing_df = df.copy()
+    timing_df['hour'] = timing_df['date'].dt.hour
+    timing_df['day_of_week'] = timing_df['date'].dt.day_name()
+    
+    # Create scatter plot of orders by time of day
+    st.markdown("#### When Do You Order?")
+    st.markdown("Each point represents an order. Hover over points to see details.")
+    
+    # Create scatter plot using plotly
+    fig = px.scatter(
+        timing_df,
+        x='hour',
+        y='price',
+        color='day_of_week',
+        hover_data={
+            'price': ':.0f',
+            'restaurant': True,
+            'date': '|%Y-%m-%d %H:%M',
+            'hour': False,
+            'day_of_week': True
+        },
+        title='Orders by Time of Day',
+        labels={
+            'hour': 'Hour of Day', 
+            'price': 'Order Amount (PKR)',
+            'day_of_week': 'Day of Week'
+        }
+    )
+    
+    # Map the hours to new values (12 PM = 0, 1 PM = 1, ..., 11 AM = 23)
+    timing_df['adjusted_hour'] = timing_df['hour'].apply(
+        lambda x: (x - 12) % 24
+    )
+    
+    # Create scatter plot with adjusted hours
+    fig = px.scatter(
+        timing_df,
+        x='adjusted_hour',
+        y='price',
+        color='day_of_week',
+        hover_data={
+            'price': ':.0f',
+            'restaurant': True,
+            'date': '|%Y-%m-%d %H:%M',
+            'hour': False,
+            'day_of_week': True
+        },
+        title='Orders by Time of Day',
+        labels={
+            'adjusted_hour': 'Hour of Day', 
+            'price': 'Order Amount (PKR)',
+            'day_of_week': 'Day of Week'
+        }
+    )
+    
+    # Rearrange hours to start from noon (12 PM)
+    hour_labels = [
+        '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM',
+        '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM',
+        '12 AM', '1 AM', '2 AM', '3 AM', '4 AM', '5 AM',
+        '6 AM', '7 AM', '8 AM', '9 AM', '10 AM', '11 AM'
+    ]
+    
+    # Enhanced layout customization
+    fig.update_layout(
+        xaxis=dict(
+            tickmode='array',
+            ticktext=hour_labels,
+            tickvals=list(range(24)),  # Simple 0-23 range
+            tickangle=45,
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            title_font=dict(size=14),
+            tickfont=dict(size=10),
+            dtick=1,
+            range=[-0.5, 23.5],  # Show full range
+            showgrid=True,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title_font=dict(size=14),
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            zeroline=True,
+            zerolinecolor='rgba(128, 128, 128, 0.2)',
+        ),
+        showlegend=True,
+        legend_title_text='Day of Week',
+        height=500,
+        plot_bgcolor='white',
+        margin=dict(t=50, l=50, r=50, b=50),
+    )
+    
+    # Update marker properties
+    fig.update_traces(
+        marker=dict(
+            size=10,
+            opacity=0.7,
+            line=dict(width=1, color='white'),
+            symbol='circle'
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add time-based insights with more detailed analysis
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        peak_hour = timing_df.groupby('hour')['price'].count().idxmax()
+        peak_hour_formatted = f"{peak_hour:02d}:00" if peak_hour < 12 else f"{peak_hour-12:02d}:00 PM" if peak_hour > 12 else "12:00 PM"
+        st.metric("Most Common Order Time", peak_hour_formatted)
+        
+    with col2:
+        peak_day = timing_df['day_of_week'].mode().iloc[0]
+        st.metric("Most Common Day", peak_day)
+        
+    with col3:
+        avg_order_time = timing_df['hour'].mean()
+        avg_time_formatted = f"{int(avg_order_time):02d}:{int((avg_order_time % 1) * 60):02d}"
+        st.metric("Average Order Time", avg_time_formatted)
+    
+    # Add time period analysis
+    st.markdown("#### 🕒 Time Period Analysis")
+    
+    def get_time_period(hour):
+        if 5 <= hour < 12:
+            return "Morning (5 AM - 11:59 AM)"
+        elif 12 <= hour < 17:
+            return "Afternoon (12 PM - 4:59 PM)"
+        elif 17 <= hour < 22:
+            return "Evening (5 PM - 9:59 PM)"
+        else:
+            return "Late Night (10 PM - 4:59 AM)"
+    
+    timing_df['time_period'] = timing_df['hour'].apply(get_time_period)
+    period_stats = timing_df.groupby('time_period').agg({
+        'price': ['count', 'mean', 'sum']
+    }).round(2)
+    
+    period_stats.columns = ['Number of Orders', 'Average Order (PKR)', 'Total Spent (PKR)']
+    period_stats = period_stats.reindex([
+        "Morning (5 AM - 11:59 AM)",
+        "Afternoon (12 PM - 4:59 PM)",
+        "Evening (5 PM - 9:59 PM)",
+        "Late Night (10 PM - 4:59 AM)"
+    ])
+    
+    st.dataframe(period_stats)
+    
+    # Add explanation of the visualization
+    st.markdown("""
+    #### 💡 Understanding Your Order Patterns
+    - Each point represents an individual order
+    - Colors show different days of the week
+    - The height of each point shows the order amount
+    - Hover over points to see the restaurant and exact time
+    
+    This can help you identify:
+    - Your peak ordering hours
+    - Which days you tend to order more
+    - Whether you spend more during certain times
+    - Your late-night ordering habits
+    """)
     
     # Overall top restaurants
     restaurant_summary = df.groupby('restaurant').agg({
