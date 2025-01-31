@@ -505,8 +505,7 @@ if page == "Privacy Policy":
 
     ### **8. Contact Us**
     If you have any questions or concerns about this Privacy Policy or the App's data practices, please contact us at:
-    - **Email:** [Your Email Address]
-    - **Website:** [Your Website URL]
+    - **Email:** mofasiulrehman@gmail.com
 
     ### **9. Consent**
     By using the **FoodPanda Expense Tracker**, you consent to the terms of this Privacy Policy.
