@@ -122,7 +122,6 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             progress_counter.progress(i / total_messages, f"Processing email {i} of {total_messages}")
             current_total.metric("Running Total", f"PKR {running_total:,.2f}")
             emails_processed.metric("Emails Processed", f"{processed_count}/{total_messages}")
-            time.sleep(0.05)  # Small delay for visual effect
 
         # Clear progress indicators
         progress_counter.empty()
