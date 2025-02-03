@@ -200,43 +200,8 @@ def get_gmail_messages(credentials):
     
     st.markdown(f"### 📅 Analysis Period: {date_range}")
     
-    # Create DataFrame and process dates
-    df = pd.DataFrame(data_dict)
-    df['date'] = pd.to_datetime(df['date'])
-    df['month_year'] = df['date'].dt.strftime('%B %Y')
-    
-    # Calculate monthly totals and sort by most recent first
-    monthly_expenses = df.groupby('month_year')['price'].agg(['sum', 'count']).reset_index()
-    monthly_expenses.columns = ['Month', 'Total Spent (PKR)', 'Number of Orders']
-    
-    # Convert Month to datetime for proper sorting
-    monthly_expenses['Month_dt'] = pd.to_datetime(monthly_expenses['Month'], format='%B %Y')
-    monthly_expenses = monthly_expenses.sort_values('Month_dt', ascending=False)
-    monthly_expenses = monthly_expenses.drop('Month_dt', axis=1)  # Remove helper column
-
-    # Display total statistics
-    total_spent = df['price'].sum()
-    total_orders = len(df)
-    avg_order = total_spent / total_orders if total_orders > 0 else 0
-    
-    # Create three columns for key metrics with adjusted widths
-    col1, col2, col3 = st.columns([1.5, 0.8, 1])  # Increased width of first column
-    with col1:
-        st.metric("Total Spent", f"PKR {total_spent:,.2f}")
-    with col2:
-        st.metric("Total Orders", total_orders)
-    with col3:
-        st.metric("Average Order", f"PKR {avg_order:,.2f}")
-    
-    # Display monthly breakdown
-    st.subheader("📊 Monthly Breakdown")
-    st.dataframe(monthly_expenses, hide_index=True)
-    
-    # Create a bar chart for monthly expenses
-    st.subheader("📈 Monthly Spending Trend")
-    
-    # Ensure we're working with datetime index
-    df['date'] = pd.to_datetime(df['date'])
+    # Display monthly breakdown and graph side by side
+    st.subheader("📊 Monthly Spending Trend")
     
     # Create monthly aggregation with proper date formatting
     monthly_data = df.groupby(df['date'].dt.to_period('M'))\
@@ -246,46 +211,62 @@ def get_gmail_messages(credentials):
     # Convert period to datetime for plotting
     monthly_data['date'] = monthly_data['date'].dt.to_timestamp()
     monthly_data = monthly_data.sort_values('date')
-    
-    # Create bar chart using plotly express
-    fig = px.bar(
-        monthly_data,
-        x='date',
-        y='price',
-        title='Monthly Spending Trend',
-        text=monthly_data['price'].round(2)  # Add value labels on bars
-    )
-    
-    # Customize the layout
-    fig.update_layout(
-        xaxis_title="Month",
-        yaxis_title="Total Spent (PKR)",
-        xaxis_tickangle=45,
-        xaxis_tickformat='%B %Y',  # Format as "Month Year"
-        showlegend=False,
-        height=500,
-        bargap=0.2,
-        plot_bgcolor='white',
-        yaxis=dict(gridcolor='rgba(128, 128, 128, 0.2)'),
-    )
-    
-    # Update bar appearance
-    fig.update_traces(
-        marker_color='#FF2B85',  # FoodPanda pink color
-        marker_line_width=0,
-        textposition='outside'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show recent orders
-    st.subheader("🛵 Recent Orders")
-    recent_orders = df.sort_values('date', ascending=False).head()
-    recent_orders['date'] = recent_orders['date'].dt.strftime('%Y-%m-%d %H:%M')
-    st.dataframe(recent_orders[['date', 'price']], hide_index=True)
 
-    # Restaurant Analysis
-    st.subheader("🏪 Restaurant Analysis")
+    # Create the bar chart
+    fig = go.Figure()
+    
+    # Add bars
+    fig.add_trace(go.Bar(
+        x=monthly_data['date'],
+        y=monthly_data['price'],
+        marker_color='#FF2B85',  # FoodPanda pink
+        opacity=0.7,
+        hovertemplate=(
+            "<b>%{x|%B %Y}</b><br>" +
+            "PKR %{y:,.0f}<br>" +
+            "<extra></extra>"
+        )
+    ))
+
+    # Add price labels in thousands above bars
+    for i, row in monthly_data.iterrows():
+        fig.add_annotation(
+            x=row['date'],
+            y=row['price'],
+            text=f"{row['price']/1000:.1f}K",
+            showarrow=False,
+            yshift=10,
+            font=dict(size=10, color='#FF2B85')
+        )
+    
+    # Update layout
+    fig.update_layout(
+        showlegend=False,
+        plot_bgcolor='white',
+        height=400,
+        xaxis=dict(
+            title="",
+            tickformat="%b %Y",
+            tickangle=45,
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            showline=True,
+            linewidth=1,
+            linecolor='rgba(128, 128, 128, 0.2)',
+            dtick="M1",  # Force tick for every month
+            tickmode='linear',  # Linear tick mode to show all values
+        ),
+        yaxis=dict(
+            title="Amount (PKR)",
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            showline=True,
+            linewidth=1,
+            linecolor='rgba(128, 128, 128, 0.2)'
+        ),
+        margin=dict(l=20, r=20, t=40, b=40)
+    )
+    
+    # Display the visualization
+    st.plotly_chart(fig, use_container_width=True)
     
     # Add Time of Day Analysis
     st.subheader("⏰ Order Timing Analysis")
@@ -295,29 +276,24 @@ def get_gmail_messages(credentials):
     timing_df['hour'] = timing_df['date'].dt.hour
     timing_df['day_of_week'] = timing_df['date'].dt.day_name()
     
-    # Create two columns for the visualizations
-    col1, col2 = st.columns(2)
-
-    # Prepare data for heatmap
-    timing_df['day_number'] = timing_df['day_of_week'].map({
-        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
-        'Friday': 4, 'Saturday': 5, 'Sunday': 6
-    })
-
-    # Create heatmap data
-    heatmap_data = pd.crosstab(
-        index=timing_df['day_of_week'],
-        columns=timing_df['hour'],
-        values=timing_df['price'],
-        aggfunc='count'
-    ).fillna(0)
-
-    # Reorder days to start with Monday
-    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    heatmap_data = heatmap_data.reindex(day_order)
-
-
     st.markdown("##### 24-Hour Order Distribution")
+    
+    # Calculate time period statistics
+    def get_time_period(hour):
+        if 5 <= hour < 12:
+            return 'Morning'
+        elif 12 <= hour < 17:
+            return 'Afternoon'
+        elif 17 <= hour < 22:
+            return 'Evening'
+        else:
+            return 'Late Night'
+
+    timing_df['time_period'] = timing_df['hour'].apply(get_time_period)
+    period_stats = timing_df.groupby('time_period').agg({
+        'price': ['sum', 'mean']
+    }).round(2)
+
     # Prepare data for radial chart
     hour_counts = timing_df['hour'].value_counts().sort_index()
     
@@ -327,46 +303,102 @@ def get_gmail_messages(credentials):
     # Add the radial bar chart
     fig_radial.add_trace(go.Barpolar(
         r=hour_counts.values,
-        theta=hour_counts.index.map(lambda x: x * 15),  # Convert hours to degrees (360/24 = 15)
+        theta=hour_counts.index.map(lambda x: x * 15),  # Convert hours to degrees
         width=15,  # Width of each bar
-        marker_color=hour_counts.values,
-        marker_colorscale='Reds',
+        marker=dict(
+            color=hour_counts.values,
+            colorscale=[[0, '#FFE5EE'], [1, '#FF2B85']],  # Custom pink colorscale from light to dark
+            showscale=False
+        ),
         hovertemplate="Hour: %{customdata}<br>Orders: %{r}<extra></extra>",
         customdata=[f'{i:02d}:00' for i in hour_counts.index]
     ))
-    
-    # Update layout for radial chart
+
+    # Find most common hour to order
+    most_common_hour = timing_df['hour'].mode().iloc[0]
+    most_common_hour_formatted = f"{most_common_hour:02d}:00"
+
+    # Update layout with improved spacing and alignment
     fig_radial.update_layout(
         polar=dict(
-            radialaxis=dict(showticklabels=True, ticks=''),
+            radialaxis=dict(showticklabels=False, ticks=''),
             angularaxis=dict(
                 tickmode='array',
                 ticktext=['12 AM', '3 AM', '6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'],
                 tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
                 direction='clockwise',
                 rotation=90,
-            )
+            ),
+            domain=dict(x=[0.15, 0.85], y=[0.15, 0.85])  # Better placement
         ),
-        height=400,
-        showlegend=False
+        height=500,
+        margin=dict(t=80, b=80, l=50, r=50),
+        showlegend=False,
+        annotations=[
+            # Morning (Top)
+            dict(
+                x=0.5, y=1.15,
+                text=f"🌅 Morning (5-11:59 AM)<br><b>Total: {period_stats.loc['Morning', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Morning', ('price', 'mean')]/1000:.1f}K",
+                showarrow=False,
+                font=dict(size=11),
+                align='center',
+                xref='paper',
+                yref='paper'
+            ),
+            # Afternoon (Right)
+            dict(
+                x=1.1, y=0.5,
+                text=f"🌞 Afternoon (12-4:59 PM)<br><b>Total: {period_stats.loc['Afternoon', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Afternoon', ('price', 'mean')]/1000:.1f}K",
+                showarrow=False,
+                font=dict(size=11),
+                align='left',
+                xref='paper',
+                yref='paper'
+            ),
+            # Evening (Bottom)
+            dict(
+                x=0.5, y=-0.15,
+                text=f"🌆 Evening (5-9:59 PM)<br><b>Total: {period_stats.loc['Evening', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Evening', ('price', 'mean')]/1000:.1f}K",
+                showarrow=False,
+                font=dict(size=11),
+                align='center',
+                xref='paper',
+                yref='paper'
+            ),
+            # Late Night (Left)
+            dict(
+                x=-0.1, y=0.5,
+                text=f"🌙 Late Night (10 PM - 4:59 AM)<br><b>Total: {period_stats.loc['Late Night', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Late Night', ('price', 'mean')]/1000:.1f}K",
+                showarrow=False,
+                font=dict(size=11),
+                align='right',
+                xref='paper',
+                yref='paper'
+            ),
+            # Peak Order Time
+            dict(
+                x=0.5, y=1.3,
+                text=f"🕒 <b>Peak Order Time: {most_common_hour_formatted}</b>",
+                showarrow=False,
+                font=dict(size=13, color='#FF2B85', weight='bold'),
+                align='center',
+                xref='paper',
+                yref='paper'
+            )
+        ]
     )
     
     st.plotly_chart(fig_radial, use_container_width=True)
 
-    # Add explanation of the visualizations
-    st.markdown("""
-    #### 💡 Understanding the Time Visualizations
-    1. **Heatmap (left):**
-       - Shows order frequency by day and hour
-       - Darker colors indicate more orders
-       - Helps identify peak ordering times on specific days
-
-    2. **Radial Chart (right):**
-       - 24-hour clock visualization
-       - Longer bars indicate more orders
-       - Shows daily ordering patterns regardless of day
-       - Helps identify general peak hours
+    # Add brief explanation
+    st.caption("""
+    📌 **K** = Thousands (PKR)  
+    🛒 **Total** = Total spending in this time range  
+    📊 **Avg** = Average order amount  
     """)
+
+    # Restaurant Analysis
+    st.subheader("🏪 Restaurant Analysis")
     
     # Overall top restaurants
     restaurant_summary = df.groupby('restaurant').agg({
