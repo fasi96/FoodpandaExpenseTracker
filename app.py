@@ -16,8 +16,8 @@ import plotly.graph_objects as go
 # Google OAuth Configuration
 CLIENT_ID = st.secrets["google"]["client_id"]
 CLIENT_SECRET = st.secrets["google"]["client_secret"]
-# REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
-REDIRECT_URI = "http://localhost:8501"
+REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
+# REDIRECT_URI = "http://localhost:8501"
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
