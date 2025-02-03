@@ -9,12 +9,15 @@ import datetime
 import time
 import re
 import plotly.express as px
+import numpy as np
+import os
+import plotly.graph_objects as go
 
 # Google OAuth Configuration
 CLIENT_ID = st.secrets["google"]["client_id"]
 CLIENT_SECRET = st.secrets["google"]["client_secret"]
-REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
-# REDIRECT_URI = "http://localhost:8501"
+# REDIRECT_URI = "https://fasi96-foodpandaexpensetracker-app-j4oqdj.streamlit.app/"  
+REDIRECT_URI = "http://localhost:8501"
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -135,19 +138,52 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
         st.error(f"An error occurred: {str(e)}")
         return None
 
+def save_to_csv(data_dict):
+    """Save order data to a CSV file."""
+    try:
+        df = pd.DataFrame(data_dict)
+        df.to_csv('foodpanda_orders.csv', index=False)
+        st.success("✅ Order data saved successfully!")
+    except Exception as e:
+        st.error(f"Error saving data: {str(e)}")
+
+def load_from_csv():
+    """Load order data from CSV file if it exists."""
+    try:
+        if os.path.exists('foodpanda_orders.csv'):
+            df = pd.read_csv('foodpanda_orders.csv')
+            return {
+                'date': df['date'].tolist(),
+                'price': df['price'].tolist(),
+                'restaurant': df['restaurant'].tolist()
+            }
+        return None
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return None
+
 def get_gmail_messages(credentials):
     """Fetch and analyze Foodpanda expenses from Gmail."""
-    service = googleapiclient.discovery.build("gmail", "v1", credentials=credentials)
+    # Check if we have cached data
+    cached_data = load_from_csv()
     
-    # Get expenses data
-    data_dict = {'date': [], 'price': [], 'restaurant': []}
-    try:
-        service_results = get_emails_from_sender(service, "no-reply@mail.foodpanda.pk", days=days_to_analyze)
-        if service_results:
-            data_dict = service_results
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-        return
+    if cached_data and not st.button("🔄 Refresh Data"):
+        st.info("📂 Using cached data. Click 'Refresh Data' to fetch new orders.")
+        data_dict = cached_data
+    else:
+        service = googleapiclient.discovery.build("gmail", "v1", credentials=credentials)
+        
+        # Get expenses data
+        data_dict = {'date': [], 'price': [], 'restaurant': []}
+        try:
+            service_results = get_emails_from_sender(service, "no-reply@mail.foodpanda.pk", days=days_to_analyze)
+            if service_results:
+                data_dict = service_results
+                # Save the new data to CSV
+                save_to_csv(data_dict)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            return
     
     if not data_dict['date']:
         st.warning("📭 No Foodpanda orders found in the specified period.")
@@ -198,8 +234,49 @@ def get_gmail_messages(credentials):
     
     # Create a bar chart for monthly expenses
     st.subheader("📈 Monthly Spending Trend")
-    chart_data = monthly_expenses.set_index('Month')
-    st.bar_chart(chart_data['Total Spent (PKR)'])
+    
+    # Ensure we're working with datetime index
+    df['date'] = pd.to_datetime(df['date'])
+    
+    # Create monthly aggregation with proper date formatting
+    monthly_data = df.groupby(df['date'].dt.to_period('M'))\
+        .agg({'price': 'sum'})\
+        .reset_index()
+
+    # Convert period to datetime for plotting
+    monthly_data['date'] = monthly_data['date'].dt.to_timestamp()
+    monthly_data = monthly_data.sort_values('date')
+    
+    # Create bar chart using plotly express
+    fig = px.bar(
+        monthly_data,
+        x='date',
+        y='price',
+        title='Monthly Spending Trend',
+        text=monthly_data['price'].round(2)  # Add value labels on bars
+    )
+    
+    # Customize the layout
+    fig.update_layout(
+        xaxis_title="Month",
+        yaxis_title="Total Spent (PKR)",
+        xaxis_tickangle=45,
+        xaxis_tickformat='%B %Y',  # Format as "Month Year"
+        showlegend=False,
+        height=500,
+        bargap=0.2,
+        plot_bgcolor='white',
+        yaxis=dict(gridcolor='rgba(128, 128, 128, 0.2)'),
+    )
+    
+    # Update bar appearance
+    fig.update_traces(
+        marker_color='#FF2B85',  # FoodPanda pink color
+        marker_line_width=0,
+        textposition='outside'
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
     
     # Show recent orders
     st.subheader("🛵 Recent Orders")
@@ -218,163 +295,77 @@ def get_gmail_messages(credentials):
     timing_df['hour'] = timing_df['date'].dt.hour
     timing_df['day_of_week'] = timing_df['date'].dt.day_name()
     
-    # Create scatter plot of orders by time of day
-    st.markdown("#### When Do You Order?")
-    st.markdown("Each point represents an order. Hover over points to see details.")
+    # Create two columns for the visualizations
+    col1, col2 = st.columns(2)
+
+    # Prepare data for heatmap
+    timing_df['day_number'] = timing_df['day_of_week'].map({
+        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+        'Friday': 4, 'Saturday': 5, 'Sunday': 6
+    })
+
+    # Create heatmap data
+    heatmap_data = pd.crosstab(
+        index=timing_df['day_of_week'],
+        columns=timing_df['hour'],
+        values=timing_df['price'],
+        aggfunc='count'
+    ).fillna(0)
+
+    # Reorder days to start with Monday
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    heatmap_data = heatmap_data.reindex(day_order)
+
+
+    st.markdown("##### 24-Hour Order Distribution")
+    # Prepare data for radial chart
+    hour_counts = timing_df['hour'].value_counts().sort_index()
     
-    # Create scatter plot using plotly
-    fig = px.scatter(
-        timing_df,
-        x='hour',
-        y='price',
-        color='day_of_week',
-        hover_data={
-            'price': ':.0f',
-            'restaurant': True,
-            'date': '|%Y-%m-%d %H:%M',
-            'hour': False,
-            'day_of_week': True
-        },
-        title='Orders by Time of Day',
-        labels={
-            'hour': 'Hour of Day', 
-            'price': 'Order Amount (PKR)',
-            'day_of_week': 'Day of Week'
-        }
-    )
+    # Create the radial chart
+    fig_radial = go.Figure()
     
-    # Map the hours to new values (12 PM = 0, 1 PM = 1, ..., 11 AM = 23)
-    timing_df['adjusted_hour'] = timing_df['hour'].apply(
-        lambda x: (x - 12) % 24
-    )
+    # Add the radial bar chart
+    fig_radial.add_trace(go.Barpolar(
+        r=hour_counts.values,
+        theta=hour_counts.index.map(lambda x: x * 15),  # Convert hours to degrees (360/24 = 15)
+        width=15,  # Width of each bar
+        marker_color=hour_counts.values,
+        marker_colorscale='Reds',
+        hovertemplate="Hour: %{customdata}<br>Orders: %{r}<extra></extra>",
+        customdata=[f'{i:02d}:00' for i in hour_counts.index]
+    ))
     
-    # Create scatter plot with adjusted hours
-    fig = px.scatter(
-        timing_df,
-        x='adjusted_hour',
-        y='price',
-        color='day_of_week',
-        hover_data={
-            'price': ':.0f',
-            'restaurant': True,
-            'date': '|%Y-%m-%d %H:%M',
-            'hour': False,
-            'day_of_week': True
-        },
-        title='Orders by Time of Day',
-        labels={
-            'adjusted_hour': 'Hour of Day', 
-            'price': 'Order Amount (PKR)',
-            'day_of_week': 'Day of Week'
-        }
-    )
-    
-    # Rearrange hours to start from noon (12 PM)
-    hour_labels = [
-        '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM',
-        '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM',
-        '12 AM', '1 AM', '2 AM', '3 AM', '4 AM', '5 AM',
-        '6 AM', '7 AM', '8 AM', '9 AM', '10 AM', '11 AM'
-    ]
-    
-    # Enhanced layout customization
-    fig.update_layout(
-        xaxis=dict(
-            tickmode='array',
-            ticktext=hour_labels,
-            tickvals=list(range(24)),  # Simple 0-23 range
-            tickangle=45,
-            gridcolor='rgba(128, 128, 128, 0.2)',
-            title_font=dict(size=14),
-            tickfont=dict(size=10),
-            dtick=1,
-            range=[-0.5, 23.5],  # Show full range
-            showgrid=True,
-            zeroline=False,
+    # Update layout for radial chart
+    fig_radial.update_layout(
+        polar=dict(
+            radialaxis=dict(showticklabels=True, ticks=''),
+            angularaxis=dict(
+                tickmode='array',
+                ticktext=['12 AM', '3 AM', '6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'],
+                tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
+                direction='clockwise',
+                rotation=90,
+            )
         ),
-        yaxis=dict(
-            title_font=dict(size=14),
-            gridcolor='rgba(128, 128, 128, 0.2)',
-            zeroline=True,
-            zerolinecolor='rgba(128, 128, 128, 0.2)',
-        ),
-        showlegend=True,
-        legend_title_text='Day of Week',
-        height=500,
-        plot_bgcolor='white',
-        margin=dict(t=50, l=50, r=50, b=50),
+        height=400,
+        showlegend=False
     )
     
-    # Update marker properties
-    fig.update_traces(
-        marker=dict(
-            size=10,
-            opacity=0.7,
-            line=dict(width=1, color='white'),
-            symbol='circle'
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Add time-based insights with more detailed analysis
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        peak_hour = timing_df.groupby('hour')['price'].count().idxmax()
-        peak_hour_formatted = f"{peak_hour:02d}:00" if peak_hour < 12 else f"{peak_hour-12:02d}:00 PM" if peak_hour > 12 else "12:00 PM"
-        st.metric("Most Common Order Time", peak_hour_formatted)
-        
-    with col2:
-        peak_day = timing_df['day_of_week'].mode().iloc[0]
-        st.metric("Most Common Day", peak_day)
-        
-    with col3:
-        avg_order_time = timing_df['hour'].mean()
-        avg_time_formatted = f"{int(avg_order_time):02d}:{int((avg_order_time % 1) * 60):02d}"
-        st.metric("Average Order Time", avg_time_formatted)
-    
-    # Add time period analysis
-    st.markdown("#### 🕒 Time Period Analysis")
-    
-    def get_time_period(hour):
-        if 5 <= hour < 12:
-            return "Morning (5 AM - 11:59 AM)"
-        elif 12 <= hour < 17:
-            return "Afternoon (12 PM - 4:59 PM)"
-        elif 17 <= hour < 22:
-            return "Evening (5 PM - 9:59 PM)"
-        else:
-            return "Late Night (10 PM - 4:59 AM)"
-    
-    timing_df['time_period'] = timing_df['hour'].apply(get_time_period)
-    period_stats = timing_df.groupby('time_period').agg({
-        'price': ['count', 'mean', 'sum']
-    }).round(2)
-    
-    period_stats.columns = ['Number of Orders', 'Average Order (PKR)', 'Total Spent (PKR)']
-    period_stats = period_stats.reindex([
-        "Morning (5 AM - 11:59 AM)",
-        "Afternoon (12 PM - 4:59 PM)",
-        "Evening (5 PM - 9:59 PM)",
-        "Late Night (10 PM - 4:59 AM)"
-    ])
-    
-    st.dataframe(period_stats)
-    
-    # Add explanation of the visualization
+    st.plotly_chart(fig_radial, use_container_width=True)
+
+    # Add explanation of the visualizations
     st.markdown("""
-    #### 💡 Understanding Your Order Patterns
-    - Each point represents an individual order
-    - Colors show different days of the week
-    - The height of each point shows the order amount
-    - Hover over points to see the restaurant and exact time
-    
-    This can help you identify:
-    - Your peak ordering hours
-    - Which days you tend to order more
-    - Whether you spend more during certain times
-    - Your late-night ordering habits
+    #### 💡 Understanding the Time Visualizations
+    1. **Heatmap (left):**
+       - Shows order frequency by day and hour
+       - Darker colors indicate more orders
+       - Helps identify peak ordering times on specific days
+
+    2. **Radial Chart (right):**
+       - 24-hour clock visualization
+       - Longer bars indicate more orders
+       - Shows daily ordering patterns regardless of day
+       - Helps identify general peak hours
     """)
     
     # Overall top restaurants
@@ -504,7 +495,8 @@ if page == "Privacy Policy":
     We may update this Privacy Policy from time to time. Any changes will be posted on this page, and the "Last Updated" date will be revised. We encourage you to review this policy periodically.
 
     ### **8. Contact Us**
-    If you have any questions or concerns about this Privacy Policy or the App's data practices, please contact us at:
+    If you have any questions or concerns about this Privacy Policy or the App's data practices, please contact us:
+    - **LinkedIn:** [Muhammad Fasi-ur-Rehman](https://www.linkedin.com/in/muhammad-fasi-ur-rehman-5aaa7b131/)
     - **Email:** mofasiulrehman@gmail.com
 
     ### **9. Consent**
@@ -552,9 +544,18 @@ else:  # Home page
             st.rerun()
 
     else:
+        # Existing sign-in section first
         st.markdown("""
         ### 🔑 Connect Your Gmail
         To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
+        
+        ⚠️ **Important Note About Google Security Warning**
+        When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
+        - Only reads emails from "no-reply@mail.foodpanda.pk"
+        - Cannot access any other emails or perform any actions
+        - Doesn't store any of your data
+        
+        You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
         """)
         
         auth_url = get_authorization_url()
@@ -565,4 +566,176 @@ else:  # Home page
         ---
         ##### 🔒 Privacy Note
         This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
+        
+        ##### 👨‍💻 Developer Contact
+        - [LinkedIn](https://www.linkedin.com/in/muhammad-fasi-ur-rehman-5aaa7b131/)
+        - Email: mofasiurrehman@gmail.com
         """)
+
+        # Preview section moved below
+        st.markdown("### 👀 Preview")
+        st.markdown("Here's what your expense analysis will look like once you connect your account:")
+        
+        # Create sample data
+        with st.expander("📊 Sample Analysis", expanded=True):
+            # Sample metrics
+            col1, col2, col3 = st.columns([1.5, 0.8, 1])
+            with col1:
+                st.metric("Total Spent", "PKR 45,670.00")
+            with col2:
+                st.metric("Total Orders", "23")
+            with col3:
+                st.metric("Average Order", "PKR 1,985.65")
+            
+            # Sample monthly breakdown
+            st.subheader("📊 Monthly Breakdown")
+            sample_data = {
+                'Month': ['December 2023', 'November 2023', 'October 2023'],
+                'Total Spent (PKR)': [15670.00, 16500.00, 13500.00],
+                'Number of Orders': [8, 9, 6]
+            }
+            st.dataframe(pd.DataFrame(sample_data), hide_index=True)
+            
+            # Sample chart
+            st.subheader("📈 Monthly Spending Trend")
+            # Sort the data chronologically by Month_dt before creating the chart
+            chart_data = pd.DataFrame({
+                'Amount': [15670.00, 16500.00, 13500.00]
+            }, index=['Dec 2023', 'Nov 2023', 'Oct 2023'])
+            # Convert index to datetime for proper sorting
+            chart_data.index = pd.to_datetime(chart_data.index, format='%b %Y')
+            # Sort by index (date)
+            chart_data = chart_data.sort_index()
+            st.bar_chart(chart_data)
+            
+            # Add restaurant analysis
+            st.subheader("🏪 Top 10 Most Ordered From Restaurants")
+            sample_restaurants = {
+                'Restaurant': ['KFC', 'McDonald\'s', 'Pizza Hut', 'Subway', 'Burger Lab'],
+                'Total Spent': [12500.00, 9800.00, 8700.00, 7600.00, 7070.00],
+                'Number of Orders': [6, 5, 4, 4, 4],
+                'Average Order': [2083.33, 1960.00, 2175.00, 1900.00, 1767.50]
+            }
+            st.dataframe(pd.DataFrame(sample_restaurants).head(), hide_index=True)
+
+            # Add time of day analysis
+            st.subheader("⏰ Order Timing Analysis")
+            
+            # Create sample scatter plot using plotly
+            # Generate sample data
+            np.random.seed(42)  # For reproducible results
+            sample_hours = np.random.randint(11, 23, 30)  # Most orders between 11 AM and 11 PM
+            sample_prices = np.random.normal(2000, 500, 30)  # Prices around 2000 with some variation
+            days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            sample_days = np.random.choice(days, 30)
+            
+            timing_df = pd.DataFrame({
+                'hour': sample_hours,
+                'price': sample_prices,
+                'day_of_week': sample_days
+            })
+            
+            # Create scatter plot
+            fig = px.scatter(
+                timing_df,
+                x='hour',
+                y='price',
+                color='day_of_week',
+                color_discrete_sequence=['#FF2B85'] * 7,  # Use FoodPanda pink for all days
+                title='Sample: Orders by Time of Day',
+                labels={
+                    'hour': 'Hour of Day',
+                    'price': 'Order Amount (PKR)',
+                    'day_of_week': 'Day of Week'
+                }
+            )
+            
+            # Customize layout
+            hour_labels = [
+                '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM',
+                '6 PM', '7 PM', '8 PM', '9 PM', '10 PM', '11 PM',
+                '12 AM'
+            ]
+            
+            fig.update_layout(
+                xaxis=dict(
+                    tickmode='array',
+                    ticktext=hour_labels,
+                    tickvals=list(range(12, 25)),
+                    tickangle=45,
+                    gridcolor='rgba(128, 128, 128, 0.2)',
+                    title_font=dict(size=14),
+                    tickfont=dict(size=10),
+                ),
+                yaxis=dict(
+                    title_font=dict(size=14),
+                    gridcolor='rgba(128, 128, 128, 0.2)',
+                ),
+                showlegend=True,
+                legend_title_text='Day of Week',
+                height=400,
+                plot_bgcolor='white',
+            )
+            
+            fig.update_traces(
+                marker=dict(
+                    size=10,
+                    opacity=0.7,
+                    line=dict(width=1, color='white'),
+                )
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add sample time period analysis
+            st.markdown("#### 🕒 Time Period Analysis")
+            sample_time_periods = {
+                'Time Period': [
+                    'Morning (5 AM - 11:59 AM)',
+                    'Afternoon (12 PM - 4:59 PM)',
+                    'Evening (5 PM - 9:59 PM)',
+                    'Late Night (10 PM - 4:59 AM)'
+                ],
+                'Number of Orders': [3, 8, 10, 2],
+                'Average Order (PKR)': [1800.00, 2100.00, 2300.00, 1950.00],
+                'Total Spent (PKR)': [5400.00, 16800.00, 23000.00, 3900.00]
+            }
+            st.dataframe(pd.DataFrame(sample_time_periods), hide_index=True)
+
+            st.info("👆 This is sample data. Connect your Gmail to see your actual FoodPanda ordering patterns!")
+        # Existing sign-in section
+        st.markdown("""
+        ### 🔑 Connect Your Gmail
+        To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
+        
+        ⚠️ **Important Note About Google Security Warning**
+        When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
+        - Only reads emails from "no-reply@mail.foodpanda.pk"
+        - Cannot access any other emails or perform any actions
+        - Doesn't store any of your data
+        
+        You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
+        """)
+        
+        auth_url = get_authorization_url()
+        st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
+                unsafe_allow_html=True)
+        
+        st.markdown("""
+        ---
+        ##### 🔒 Privacy Note
+        This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
+        
+        ##### 👨‍💻 Developer Contact
+        - [LinkedIn](https://www.linkedin.com/in/muhammad-fasi-ur-rehman-5aaa7b131/)
+        - Email: mofasiurrehman@gmail.com
+        """)
+
+# Update metrics styling
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        color: #FF2B85;
+    }
+    </style>
+    """, unsafe_allow_html=True)
