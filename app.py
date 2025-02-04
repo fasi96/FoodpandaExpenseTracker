@@ -839,12 +839,32 @@ else:  # Home page
             st.rerun()
 
     else:
-        # Preview section
-        st.markdown("### 👀 Preview")
-        st.markdown("Here's what your expense analysis will look like once you connect your account:")
+        # Sign-in section
+        st.markdown("""
+        ### Connect Your Gmail
+        To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
         
-        # Create sample data from CSV
-        with st.expander("📊 Sample Analysis", expanded=True):
+        ⚠️ **Important Note About Google Security Warning**
+        When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
+        - Only reads emails from "no-reply@mail.foodpanda.pk"
+        - Cannot access any other emails or perform any actions
+        - Doesn't store any of your data
+        
+        You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
+        """)
+        
+        auth_url = get_authorization_url()
+        st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
+                unsafe_allow_html=True)
+        
+        st.markdown("""
+        ---
+        ##### 🔒 Privacy Note
+        This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
+        """)
+
+        # Preview section at the bottom
+        with st.expander("👀 Preview Sample Analysis", expanded=True):
             try:
                 # Load sample data from CSV
                 preview_df = pd.read_csv('preview_sample.csv')
@@ -914,35 +934,9 @@ else:  # Home page
                 monthly_summary_df = pd.DataFrame(monthly_summary)
                 st.dataframe(monthly_summary_df, hide_index=True)
                 
-                st.info("👆 This is sample data. Connect your Gmail to see your actual FoodPanda ordering patterns!")
-                
             except Exception as e:
                 st.error(f"Error loading preview data: {str(e)}")
                 st.info("Preview sample data file not found or could not be loaded.")
-
-            # Existing sign-in section
-            st.markdown("""
-            ### Connect Your Gmail
-            To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
-            
-            ⚠️ **Important Note About Google Security Warning**
-            When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
-            - Only reads emails from "no-reply@mail.foodpanda.pk"
-            - Cannot access any other emails or perform any actions
-            - Doesn't store any of your data
-            
-            You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
-            """)
-            
-            auth_url = get_authorization_url()
-            st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
-                    unsafe_allow_html=True)
-            
-            st.markdown("""
-            ---
-            ##### 🔒 Privacy Note
-            This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
-            """)
 
 # Update metrics styling
 st.markdown("""
