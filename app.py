@@ -859,58 +859,90 @@ else:  # Home page
                 st.markdown("## 📊 Summary Analysis")
                 st.markdown(f"### 📅 Analysis Period: {date_range}")
                 
-                # Calculate metrics
-                total_spent = preview_df['price'].sum()
-                total_orders = len(preview_df)
-                avg_order = total_spent / total_orders if total_orders > 0 else 0
+                # Display all analysis sections using the display_analysis function
+                display_analysis(preview_df)
                 
-                # Calculate monthly average
-                months_diff = (latest_order.year - earliest_order.year) * 12 + (latest_order.month - earliest_order.month) + 1
-                monthly_average = total_spent / months_diff if months_diff > 0 else 0
+                # Restaurant Analysis
+                st.subheader("🏪 Restaurant Analysis")
                 
-                # Display metrics
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
-                    st.metric("📦 Total Orders", f"{total_orders:,}")
-                with col2:
-                    st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
-                    st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+                # Overall top restaurants
+                restaurant_summary = preview_df.groupby('restaurant').agg({
+                    'price': ['sum', 'count', 'mean']
+                }).round(2)
+                restaurant_summary.columns = ['Total Spent', 'Number of Orders', 'Average Order']
+                restaurant_summary = restaurant_summary.sort_values('Number of Orders', ascending=False)
                 
-                # Add a divider
-                st.markdown("---")
+                # Display top 10 most ordered from restaurants
+                st.markdown("#### Top 10 Most Ordered From Restaurants")
+                top_restaurants = restaurant_summary.head(10)
+                st.dataframe(top_restaurants)
                 
-                # Continue with existing visualizations...
+                # Monthly top 3 restaurants
+                st.markdown("#### Monthly Top 3 Restaurants")
+                preview_df['month_year'] = preview_df['date'].dt.strftime('%B %Y')
+                
+                # Sort months in descending order
+                months = sorted(preview_df['month_year'].unique(), 
+                              key=lambda x: pd.to_datetime(x, format='%B %Y'), 
+                              reverse=True)
+                
+                monthly_summary = []
+                for month in months:
+                    month_data = preview_df[preview_df['month_year'] == month]
+                    top_3 = month_data.groupby('restaurant').agg({
+                        'price': 'sum',
+                        'restaurant': 'count'
+                    }).round(2)
+                    top_3.columns = ['Total Spent', 'Orders']
+                    top_3 = top_3.sort_values('Total Spent', ascending=False).head(3)
+                    
+                    formatted_top_3 = [
+                        f"{restaurant} ({orders} - PKR {spent:,.0f})"
+                        for restaurant, (spent, orders) in top_3.iterrows()
+                    ]
+                    
+                    while len(formatted_top_3) < 3:
+                        formatted_top_3.append("")
+                        
+                    monthly_summary.append({
+                        'Month': month,
+                        '1st': formatted_top_3[0],
+                        '2nd': formatted_top_3[1],
+                        '3rd': formatted_top_3[2]
+                    })
+                
+                monthly_summary_df = pd.DataFrame(monthly_summary)
+                st.dataframe(monthly_summary_df, hide_index=True)
+                
+                st.info("👆 This is sample data. Connect your Gmail to see your actual FoodPanda ordering patterns!")
                 
             except Exception as e:
                 st.error(f"Error loading preview data: {str(e)}")
                 st.info("Preview sample data file not found or could not be loaded.")
 
-            st.info("👆 This is sample data. Connect your Gmail to see your actual FoodPanda ordering patterns!")
-
-        # Existing sign-in section
-        st.markdown("""
-        ### Connect Your Gmail
-        To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
-        
-        ⚠️ **Important Note About Google Security Warning**
-        When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
-        - Only reads emails from "no-reply@mail.foodpanda.pk"
-        - Cannot access any other emails or perform any actions
-        - Doesn't store any of your data
-        
-        You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
-        """)
-        
-        auth_url = get_authorization_url()
-        st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
-                unsafe_allow_html=True)
-        
-        st.markdown("""
-        ---
-        ##### 🔒 Privacy Note
-        This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
-        """)
+            # Existing sign-in section
+            st.markdown("""
+            ### Connect Your Gmail
+            To analyze your FoodPanda expenses, connect your Gmail account where you receive FoodPanda order confirmations.
+            
+            ⚠️ **Important Note About Google Security Warning**
+            When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
+            - Only reads emails from "no-reply@mail.foodpanda.pk"
+            - Cannot access any other emails or perform any actions
+            - Doesn't store any of your data
+            
+            You can review our source code on [GitHub](https://github.com/fasi96/FoodpandaExpenseTracker) to verify the security and privacy of the app.
+            """)
+            
+            auth_url = get_authorization_url()
+            st.markdown(f'<a href="{auth_url}" target="_blank"><button style="background-color:#FF2B85;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">🔐 Connect Gmail Account</button></a>', 
+                    unsafe_allow_html=True)
+            
+            st.markdown("""
+            ---
+            ##### 🔒 Privacy Note
+            This app only reads your FoodPanda order confirmation emails. No data is stored or shared.
+            """)
 
 # Update metrics styling
 st.markdown("""
