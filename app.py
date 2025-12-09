@@ -1099,6 +1099,20 @@ def get_wrapped_slides_data(df):
         'latest_date': df['date'].max().strftime('%B %d, %Y')
     }
 
+def _go_prev():
+    """Callback to go to previous slide."""
+    if st.session_state.wrapped_slide > 0:
+        st.session_state.wrapped_slide -= 1
+
+def _go_next():
+    """Callback to go to next slide."""
+    if st.session_state.wrapped_slide < 4:
+        st.session_state.wrapped_slide += 1
+
+def _restart_wrapped():
+    """Callback to restart wrapped experience."""
+    st.session_state.wrapped_slide = 0
+
 def display_wrapped_experience(df):
     """Display the Spotify Wrapped-style story experience."""
     
@@ -1117,9 +1131,7 @@ def display_wrapped_experience(df):
     col_prev, col_progress, col_next = st.columns([1, 3, 1])
     
     with col_prev:
-        if st.button("◀ Back", disabled=current_slide == 0, key="wrapped_prev"):
-            st.session_state.wrapped_slide -= 1
-            st.rerun()
+        st.button("◀ Back", disabled=current_slide == 0, key="wrapped_prev", on_click=_go_prev)
     
     with col_progress:
         # Progress dots
@@ -1133,13 +1145,9 @@ def display_wrapped_experience(df):
     
     with col_next:
         if current_slide < total_slides - 1:
-            if st.button("Next ▶", key="wrapped_next"):
-                st.session_state.wrapped_slide += 1
-                st.rerun()
+            st.button("Next ▶", key="wrapped_next", on_click=_go_next)
         else:
-            if st.button("🔄 Restart", key="wrapped_restart"):
-                st.session_state.wrapped_slide = 0
-                st.rerun()
+            st.button("🔄 Restart", key="wrapped_restart", on_click=_restart_wrapped)
     
     # Display current slide
     if current_slide == 0:
