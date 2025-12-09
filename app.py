@@ -111,9 +111,9 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             # Extract restaurant name
             try:
                 restaurant = re.search(r'Partner:\s*Name:\s*(.+)', decoded_content)
-                restaurant = restaurant.group(1).strip() if restaurant else "Unknown"
+                restaurant = restaurant.group(1).strip() if restaurant else "Panda Mart"
             except:
-                restaurant = "Unknown"
+                restaurant = "Panda Mart"
             
             data_dict['date'].append(date)
             data_dict['price'].append(price)
@@ -216,6 +216,9 @@ def get_gmail_messages(credentials):
             st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
         with col3:
             st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
+    
+    # Display Hero Section
+    display_hero_section(df)
     
     # Display Insights Section
     st.markdown("### 💡 Key Insights")
@@ -588,6 +591,61 @@ def generate_insights(df, total_spent, total_orders, avg_order):
     
     return insights[:6]  # Return up to 6 insights
 
+def display_hero_section(df):
+    """Display hero section spotlighting favorite restaurant."""
+    if df.empty:
+        return
+    
+    # Calculate favorite restaurant stats
+    restaurant_stats = df.groupby('restaurant').agg({
+        'price': ['sum', 'count']
+    }).round(2)
+    restaurant_stats.columns = ['total_spent', 'order_count']
+    restaurant_stats = restaurant_stats.sort_values('order_count', ascending=False)
+    
+    if len(restaurant_stats) == 0:
+        return
+    
+    # Get top restaurant
+    fav_restaurant = restaurant_stats.index[0]
+    fav_orders = int(restaurant_stats.iloc[0]['order_count'])
+    fav_spent = restaurant_stats.iloc[0]['total_spent']
+    
+    # Calculate percentage
+    total_orders = len(df)
+    percentage = (fav_orders / total_orders * 100) if total_orders > 0 else 0
+    
+    # Choose emoji based on restaurant name
+    if 'pizza' in fav_restaurant.lower():
+        emoji = '🍕'
+    elif 'burger' in fav_restaurant.lower() or 'bun' in fav_restaurant.lower():
+        emoji = '🍔'
+    elif 'panda mart' in fav_restaurant.lower():
+        emoji = '🛒'
+    elif 'chinese' in fav_restaurant.lower() or 'wok' in fav_restaurant.lower():
+        emoji = '🥡'
+    elif 'desi' in fav_restaurant.lower() or 'karahi' in fav_restaurant.lower():
+        emoji = '🍛'
+    elif 'cafe' in fav_restaurant.lower() or 'coffee' in fav_restaurant.lower():
+        emoji = '☕'
+    else:
+        emoji = '⭐'
+    
+    # Display hero section
+    st.markdown(f"""
+        <div class="hero-section">
+            <div class="hero-icon">{emoji}</div>
+            <div class="hero-title">Your Go-To Spot: <span class="hero-restaurant">{fav_restaurant}</span></div>
+            <div class="hero-stats">
+                <span class="hero-stat-number">{fav_orders}</span> orders · 
+                <span class="hero-stat-number">PKR {fav_spent:,.0f}</span> spent
+            </div>
+            <div class="hero-message">
+                🎯 <strong>{fav_restaurant}</strong> is your #1 choice, representing <strong>{percentage:.1f}%</strong> of all your orders!
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
 def create_monthly_spending_chart(monthly_data, monthly_budget=0):
     """Create and return the monthly spending trend chart."""
     fig = go.Figure()
@@ -828,6 +886,9 @@ def display_analysis(df):
             st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
         with col3:
             st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
+    
+    # Display Hero Section
+    display_hero_section(df)
     
     # Display Insights Section
     st.markdown("### 💡 Key Insights")
@@ -1326,6 +1387,108 @@ st.markdown("""
     /* Progress bar styling */
     .stProgress > div > div > div {
         background-color: #4CAF50;
+    }
+    
+    /* Hero Section */
+    .hero-section {
+        background: linear-gradient(135deg, #ffffff 0%, #fff5f8 100%);
+        border-radius: 12px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+        border-left: 5px solid #FF2B85;
+        text-align: center;
+        animation: heroFadeIn 0.6s ease-out;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .hero-section:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(255, 43, 133, 0.2);
+    }
+    
+    @keyframes heroFadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .hero-icon {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        animation: heroIconBounce 1s ease-out;
+    }
+    
+    @keyframes heroIconBounce {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+    }
+    
+    .hero-title {
+        font-size: 1.3rem;
+        color: #2c3e50;
+        margin-bottom: 0.8rem;
+        font-weight: 500;
+    }
+    
+    .hero-restaurant {
+        color: #FF2B85;
+        font-weight: 700;
+        font-size: 1.4rem;
+    }
+    
+    .hero-stats {
+        font-size: 1.1rem;
+        color: #555;
+        margin-bottom: 1rem;
+        font-weight: 500;
+    }
+    
+    .hero-stat-number {
+        color: #FF2B85;
+        font-weight: 700;
+    }
+    
+    .hero-message {
+        font-size: 1rem;
+        color: #666;
+        line-height: 1.6;
+        padding: 1rem;
+        background: rgba(255, 43, 133, 0.05);
+        border-radius: 8px;
+        margin-top: 1rem;
+    }
+    
+    /* Responsive adjustments for hero */
+    @media (max-width: 768px) {
+        .hero-section {
+            padding: 1.5rem 1rem;
+        }
+        
+        .hero-icon {
+            font-size: 2.5rem;
+        }
+        
+        .hero-title {
+            font-size: 1.1rem;
+        }
+        
+        .hero-restaurant {
+            font-size: 1.2rem;
+        }
+        
+        .hero-stats {
+            font-size: 1rem;
+        }
+        
+        .hero-message {
+            font-size: 0.9rem;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
