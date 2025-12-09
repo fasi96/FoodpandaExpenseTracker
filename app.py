@@ -262,14 +262,10 @@ def get_gmail_messages(credentials):
     # Calculate daily rate
     daily_rate = current_month_spending / days_elapsed if days_elapsed > 0 else 0
     
-    # Display current month card
+    # Display current month header (compact)
     st.markdown(f"""
-        <div class="insight-card" style="border-left: 4px solid #4CAF50;">
-            <div style="text-align: center; margin-bottom: 1rem;">
-                <span style="font-size: 1.2rem; font-weight: 600; color: #2c3e50;">
-                    {now.strftime('%B %Y')}
-                </span>
-            </div>
+        <div class="current-month-header">
+            {now.strftime('%B %Y')}
         </div>
     """, unsafe_allow_html=True)
     
@@ -976,14 +972,10 @@ def display_analysis(df):
     # Calculate daily rate
     daily_rate = current_month_spending / days_elapsed if days_elapsed > 0 else 0
     
-    # Display current month card
+    # Display current month header (compact)
     st.markdown(f"""
-        <div class="insight-card" style="border-left: 4px solid #4CAF50;">
-            <div style="text-align: center; margin-bottom: 1rem;">
-                <span style="font-size: 1.2rem; font-weight: 600; color: #2c3e50;">
-                    {now.strftime('%B %Y')}
-                </span>
-            </div>
+        <div class="current-month-header">
+            {now.strftime('%B %Y')}
         </div>
     """, unsafe_allow_html=True)
     
@@ -1193,7 +1185,7 @@ else:  # Home page
         """)
 
         # Preview section at the bottom
-        with st.expander("👀 Preview Sample Analysis", expanded=False):
+        with st.expander("👀 Preview Sample Analysis", expanded=True):
             try:
                 # Load sample data from CSV
                 preview_df = pd.read_csv('preview_sample.csv')
@@ -1437,6 +1429,19 @@ st.markdown("""
     /* Progress bar styling */
     .stProgress > div > div > div {
         background-color: #4CAF50;
+    }
+    
+    /* Current Month Header */
+    .current-month-header {
+        text-align: center;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #2c3e50;
+        padding: 0.8rem 1rem;
+        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        border-left: 4px solid #4CAF50;
     }
     
     /* Hero Section */
