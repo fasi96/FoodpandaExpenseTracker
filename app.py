@@ -287,7 +287,20 @@ def get_gmail_messages(credentials):
     st.markdown("---")
     
     # Create tabs for different analysis sections
-    tab1, tab2, tab3 = st.tabs(["📈 Spending Trends", "⏰ Time Analysis", "🏪 Restaurant Analysis"])
+    tab_wrapped, tab_diversity, tab_fun, tab1, tab2, tab3 = st.tabs(["🎁 Wrapped", "📊 Diversity", "💡 Fun Facts", "📈 Spending Trends", "⏰ Time Analysis", "🏪 Restaurant Analysis"])
+    
+    with tab_wrapped:
+        st.markdown("### 🎁 Your Foodpanda Wrapped")
+        st.markdown("Experience your food journey like never before!")
+        display_wrapped_experience(df)
+    
+    with tab_diversity:
+        st.markdown("### 🎯 Restaurant Diversity Score")
+        st.markdown("Are you an explorer or a loyalist?")
+        display_diversity_section(df)
+    
+    with tab_fun:
+        display_fun_comparisons(df)
     
     with tab1:
         st.markdown("### Monthly Spending Trend")
@@ -900,6 +913,404 @@ def prepare_time_analysis_data(df):
     
     return timing_df, period_stats
 
+def calculate_diversity_score(df):
+    """Calculate restaurant diversity score and return personality insights."""
+    total_orders = len(df)
+    unique_restaurants = df['restaurant'].nunique()
+    
+    # Diversity ratio (0-100)
+    diversity_ratio = (unique_restaurants / total_orders) * 100 if total_orders > 0 else 0
+    
+    # Get top 3 restaurants order percentage
+    top_restaurants = df['restaurant'].value_counts().head(3)
+    top_3_percentage = (top_restaurants.sum() / total_orders) * 100 if total_orders > 0 else 0
+    
+    # Determine personality
+    if diversity_ratio >= 40:
+        personality = "Adventurous Explorer"
+        personality_emoji = "🌍"
+        personality_desc = "You love trying new places! Your taste buds are always on an adventure."
+    elif diversity_ratio >= 20:
+        personality = "Balanced Foodie"
+        personality_emoji = "⚖️"
+        personality_desc = "You've found the sweet spot between loyalty and discovery."
+    else:
+        personality = "Loyal Regular"
+        personality_emoji = "🏠"
+        personality_desc = "You know what you like and stick to it. Your favorite spots love you!"
+    
+    # Check for loyalty badge
+    is_super_loyal = top_3_percentage >= 50
+    
+    return {
+        'diversity_ratio': diversity_ratio,
+        'unique_restaurants': unique_restaurants,
+        'total_orders': total_orders,
+        'personality': personality,
+        'personality_emoji': personality_emoji,
+        'personality_desc': personality_desc,
+        'top_3_percentage': top_3_percentage,
+        'is_super_loyal': is_super_loyal,
+        'top_restaurants': top_restaurants
+    }
+
+def generate_fun_comparisons(total_spent, total_orders, df):
+    """Generate fun spending comparisons with PKR-relevant equivalents."""
+    comparisons = []
+    
+    # Calculate days in period
+    date_range = (df['date'].max() - df['date'].min()).days + 1
+    orders_frequency = date_range / total_orders if total_orders > 0 else 0
+    
+    # PKR-based comparisons (Pakistani context)
+    chai_price = 50  # Average chai price
+    biryani_price = 350  # Average biryani plate
+    movie_ticket = 800  # Average cinema ticket
+    petrol_liter = 280  # Petrol per liter
+    pizza_price = 1500  # Medium pizza
+    iphone_price = 450000  # iPhone 15
+    bike_price = 250000  # Average 70cc bike
+    
+    # Chai comparison
+    chai_count = int(total_spent / chai_price)
+    comparisons.append({
+        'emoji': '☕',
+        'title': 'Chai Equivalent',
+        'value': f'{chai_count:,}',
+        'unit': 'cups of chai',
+        'subtitle': f"That's {chai_count // 30} months of daily chai!"
+    })
+    
+    # Biryani comparison
+    biryani_count = int(total_spent / biryani_price)
+    comparisons.append({
+        'emoji': '🍚',
+        'title': 'Biryani Counter',
+        'value': f'{biryani_count:,}',
+        'unit': 'plates of biryani',
+        'subtitle': f"Enough to feed a cricket team {biryani_count // 11} times!"
+    })
+    
+    # Movie tickets
+    movie_count = int(total_spent / movie_ticket)
+    comparisons.append({
+        'emoji': '🎬',
+        'title': 'Cinema Trips',
+        'value': f'{movie_count:,}',
+        'unit': 'movie tickets',
+        'subtitle': f"You could've watched every Marvel movie {movie_count // 35} times!"
+    })
+    
+    # Petrol comparison
+    petrol_liters = int(total_spent / petrol_liter)
+    km_distance = petrol_liters * 15  # Assuming 15km per liter
+    comparisons.append({
+        'emoji': '⛽',
+        'title': 'Fuel Fund',
+        'value': f'{petrol_liters:,}',
+        'unit': 'liters of petrol',
+        'subtitle': f"Drive {km_distance:,} km - that's Karachi to Islamabad {km_distance // 1400} times!"
+    })
+    
+    # Order frequency
+    comparisons.append({
+        'emoji': '📅',
+        'title': 'Order Rhythm',
+        'value': f'Every {orders_frequency:.1f}',
+        'unit': 'days',
+        'subtitle': f"You ordered {total_orders} times in {date_range} days!"
+    })
+    
+    # Fun percentage comparisons
+    iphone_percent = (total_spent / iphone_price) * 100
+    if iphone_percent >= 100:
+        iphone_count = total_spent // iphone_price
+        comparisons.append({
+            'emoji': '📱',
+            'title': 'iPhone Fund',
+            'value': f'{int(iphone_count)}',
+            'unit': 'iPhones worth',
+            'subtitle': f"Your food spending = {int(iphone_count)} iPhone(s)!"
+        })
+    else:
+        comparisons.append({
+            'emoji': '📱',
+            'title': 'iPhone Progress',
+            'value': f'{iphone_percent:.0f}%',
+            'unit': 'of an iPhone',
+            'subtitle': f"PKR {iphone_price - total_spent:,.0f} more to buy an iPhone!"
+        })
+    
+    return comparisons
+
+def get_wrapped_slides_data(df):
+    """Generate data for the wrapped story slides."""
+    total_orders = len(df)
+    total_spent = df['price'].sum()
+    
+    # Date calculations
+    date_range = (df['date'].max() - df['date'].min()).days + 1
+    orders_frequency = date_range / total_orders if total_orders > 0 else 0
+    
+    # Top restaurant
+    top_restaurant = df['restaurant'].value_counts().index[0]
+    top_restaurant_orders = df['restaurant'].value_counts().iloc[0]
+    top_restaurant_spent = df[df['restaurant'] == top_restaurant]['price'].sum()
+    
+    # Peak hour
+    df_copy = df.copy()
+    df_copy['hour'] = df_copy['date'].dt.hour
+    peak_hour = df_copy['hour'].mode().iloc[0]
+    
+    # Time personality
+    if 5 <= peak_hour < 12:
+        time_personality = "Early Bird Foodie 🌅"
+        time_desc = "You fuel up early! Morning orders are your thing."
+    elif 12 <= peak_hour < 17:
+        time_personality = "Lunch Break Legend 🌞"
+        time_desc = "Midday munchies hit you hard. Lunch is your prime time!"
+    elif 17 <= peak_hour < 22:
+        time_personality = "Evening Enthusiast 🌆"
+        time_desc = "Dinner delivery is your specialty. Evening cravings rule!"
+    else:
+        time_personality = "Night Owl Foodie 🌙"
+        time_desc = "Late night cravings? You own them!"
+    
+    # Get diversity data
+    diversity_data = calculate_diversity_score(df)
+    
+    # Get comparisons
+    comparisons = generate_fun_comparisons(total_spent, total_orders, df)
+    
+    return {
+        'total_orders': total_orders,
+        'total_spent': total_spent,
+        'date_range': date_range,
+        'orders_frequency': orders_frequency,
+        'top_restaurant': top_restaurant,
+        'top_restaurant_orders': top_restaurant_orders,
+        'top_restaurant_spent': top_restaurant_spent,
+        'peak_hour': peak_hour,
+        'time_personality': time_personality,
+        'time_desc': time_desc,
+        'diversity_data': diversity_data,
+        'comparisons': comparisons,
+        'earliest_date': df['date'].min().strftime('%B %d, %Y'),
+        'latest_date': df['date'].max().strftime('%B %d, %Y')
+    }
+
+def display_wrapped_experience(df):
+    """Display the Spotify Wrapped-style story experience."""
+    
+    # Initialize slide state
+    if 'wrapped_slide' not in st.session_state:
+        st.session_state.wrapped_slide = 0
+    
+    # Get wrapped data
+    data = get_wrapped_slides_data(df)
+    
+    # Total slides
+    total_slides = 5
+    current_slide = st.session_state.wrapped_slide
+    
+    # Navigation
+    col_prev, col_progress, col_next = st.columns([1, 3, 1])
+    
+    with col_prev:
+        if st.button("◀ Back", disabled=current_slide == 0, key="wrapped_prev"):
+            st.session_state.wrapped_slide -= 1
+            st.rerun()
+    
+    with col_progress:
+        # Progress dots
+        dots = ""
+        for i in range(total_slides):
+            if i == current_slide:
+                dots += "● "
+            else:
+                dots += "○ "
+        st.markdown(f"<div style='text-align: center; font-size: 1.5rem; letter-spacing: 8px;'>{dots}</div>", unsafe_allow_html=True)
+    
+    with col_next:
+        if current_slide < total_slides - 1:
+            if st.button("Next ▶", key="wrapped_next"):
+                st.session_state.wrapped_slide += 1
+                st.rerun()
+        else:
+            if st.button("🔄 Restart", key="wrapped_restart"):
+                st.session_state.wrapped_slide = 0
+                st.rerun()
+    
+    # Display current slide
+    if current_slide == 0:
+        # Slide 1: Intro
+        st.markdown(f"""
+            <div class="wrapped-slide slide-intro">
+                <div class="wrapped-year">🐼 Your Food Journey</div>
+                <div class="wrapped-period">{data['earliest_date']} — {data['latest_date']}</div>
+                <div class="wrapped-big-number">{data['total_orders']}</div>
+                <div class="wrapped-label">orders delivered to your door</div>
+                <div class="wrapped-subtitle">Let's unwrap your foodie story...</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    elif current_slide == 1:
+        # Slide 2: Top Restaurant
+        st.markdown(f"""
+            <div class="wrapped-slide slide-restaurant">
+                <div class="wrapped-small-text">Your #1 spot was...</div>
+                <div class="wrapped-restaurant-name">🏆 {data['top_restaurant']}</div>
+                <div class="wrapped-stats-row">
+                    <div class="wrapped-stat">
+                        <span class="stat-number">{data['top_restaurant_orders']}</span>
+                        <span class="stat-label">orders</span>
+                    </div>
+                    <div class="wrapped-stat">
+                        <span class="stat-number">PKR {data['top_restaurant_spent']:,.0f}</span>
+                        <span class="stat-label">spent</span>
+                    </div>
+                </div>
+                <div class="wrapped-fun-fact">That's {(data['top_restaurant_orders']/data['total_orders']*100):.0f}% of all your orders!</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    elif current_slide == 2:
+        # Slide 3: Spending with fun context
+        comparisons = data['comparisons'][:3]  # Get first 3 comparisons
+        comparison_html = ""
+        for comp in comparisons:
+            comparison_html += f'<div class="comparison-item"><span class="comp-emoji">{comp["emoji"]}</span><span class="comp-value">{comp["value"]}</span><span class="comp-unit">{comp["unit"]}</span></div>'
+        
+        st.markdown(f'<div class="wrapped-slide slide-spending"><div class="wrapped-small-text">You spent a total of...</div><div class="wrapped-big-money">PKR {data["total_spent"]:,.0f}</div><div class="wrapped-equivalents"><div class="equiv-title">That\'s equivalent to:</div>{comparison_html}</div><div class="wrapped-frequency">📅 You ordered every {data["orders_frequency"]:.1f} days on average</div></div>', unsafe_allow_html=True)
+    
+    elif current_slide == 3:
+        # Slide 4: Time personality
+        st.markdown(f"""
+            <div class="wrapped-slide slide-time">
+                <div class="wrapped-small-text">Based on your ordering times...</div>
+                <div class="wrapped-personality">{data['time_personality']}</div>
+                <div class="wrapped-peak-time">
+                    <div class="peak-label">Peak ordering hour</div>
+                    <div class="peak-value">{data['peak_hour']:02d}:00</div>
+                </div>
+                <div class="wrapped-time-desc">{data['time_desc']}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    elif current_slide == 4:
+        # Slide 5: Summary card
+        diversity = data['diversity_data']
+        st.markdown(f"""
+            <div class="wrapped-slide slide-summary">
+                <div class="summary-header">🐼 Your Foodpanda Wrapped</div>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="summary-emoji">📦</span>
+                        <span class="summary-value">{data['total_orders']}</span>
+                        <span class="summary-label">Orders</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-emoji">💰</span>
+                        <span class="summary-value">PKR {data['total_spent']/1000:.1f}K</span>
+                        <span class="summary-label">Spent</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-emoji">🏆</span>
+                        <span class="summary-value">{data['top_restaurant'][:15]}...</span>
+                        <span class="summary-label">#1 Spot</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-emoji">🕐</span>
+                        <span class="summary-value">{data['peak_hour']:02d}:00</span>
+                        <span class="summary-label">Peak Hour</span>
+                    </div>
+                </div>
+                <div class="summary-personality">
+                    <span>{diversity['personality_emoji']}</span>
+                    <span>{diversity['personality']}</span>
+                </div>
+                <div class="summary-footer">{data['earliest_date']} — {data['latest_date']}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+def display_diversity_section(df):
+    """Display the restaurant diversity score section."""
+    diversity = calculate_diversity_score(df)
+    
+    st.markdown(f"""
+        <div class="diversity-card">
+            <div class="diversity-header">
+                <span class="diversity-emoji">{diversity['personality_emoji']}</span>
+                <span class="diversity-title">{diversity['personality']}</span>
+            </div>
+            <div class="diversity-score-container">
+                <div class="diversity-score">{diversity['diversity_ratio']:.0f}%</div>
+                <div class="diversity-score-label">Diversity Score</div>
+            </div>
+            <div class="diversity-desc">{diversity['personality_desc']}</div>
+            <div class="diversity-stats">
+                <div class="div-stat">
+                    <span class="div-stat-value">{diversity['unique_restaurants']}</span>
+                    <span class="div-stat-label">unique restaurants</span>
+                </div>
+                <div class="div-stat">
+                    <span class="div-stat-value">{diversity['total_orders']}</span>
+                    <span class="div-stat-label">total orders</span>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Loyalty badge
+    if diversity['is_super_loyal']:
+        st.markdown(f"""
+            <div class="loyalty-badge">
+                <span class="badge-emoji">🏅</span>
+                <span class="badge-text">Super Loyal! {diversity['top_3_percentage']:.0f}% of orders from your top 3 restaurants</span>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Top restaurants breakdown
+    st.markdown("#### Your Top Restaurants")
+    for i, (restaurant, count) in enumerate(diversity['top_restaurants'].items()):
+        percentage = (count / diversity['total_orders']) * 100
+        medal = ['🥇', '🥈', '🥉'][i] if i < 3 else '📍'
+        st.markdown(f"""
+            <div class="top-restaurant-bar">
+                <span class="tr-medal">{medal}</span>
+                <span class="tr-name">{restaurant}</span>
+                <div class="tr-bar-container">
+                    <div class="tr-bar" style="width: {percentage}%;"></div>
+                </div>
+                <span class="tr-count">{count} ({percentage:.0f}%)</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+def display_fun_comparisons(df):
+    """Display the fun spending comparisons section."""
+    total_spent = df['price'].sum()
+    total_orders = len(df)
+    comparisons = generate_fun_comparisons(total_spent, total_orders, df)
+    
+    st.markdown("### 💡 Your Spending In Perspective")
+    
+    # Display comparisons in a grid
+    for i in range(0, len(comparisons), 3):
+        cols = st.columns(3)
+        for j, col in enumerate(cols):
+            if i + j < len(comparisons):
+                comp = comparisons[i + j]
+                with col:
+                    st.markdown(f"""
+                        <div class="comparison-card">
+                            <div class="comp-card-emoji">{comp['emoji']}</div>
+                            <div class="comp-card-title">{comp['title']}</div>
+                            <div class="comp-card-value">{comp['value']}</div>
+                            <div class="comp-card-unit">{comp['unit']}</div>
+                            <div class="comp-card-subtitle">{comp['subtitle']}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
 def display_analysis(df):
     """Display the full analysis for either preview or actual data."""
     # Display metrics in a container
@@ -997,9 +1408,22 @@ def display_analysis(df):
     st.markdown("---")
     
     # Create tabs for different analysis sections
-    tab1, tab2 = st.tabs(["📈 Spending Trends", "⏰ Time Analysis"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎁 Wrapped", "📊 Diversity Score", "💡 Fun Facts", "📈 Spending Trends", "⏰ Time Analysis"])
     
     with tab1:
+        st.markdown("### 🎁 Your Foodpanda Wrapped")
+        st.markdown("Experience your food journey like never before!")
+        display_wrapped_experience(df)
+    
+    with tab2:
+        st.markdown("### 🎯 Restaurant Diversity Score")
+        st.markdown("Are you an explorer or a loyalist?")
+        display_diversity_section(df)
+    
+    with tab3:
+        display_fun_comparisons(df)
+    
+    with tab4:
         st.markdown("### Monthly Spending Trend")
         monthly_data = df.groupby(df['date'].dt.to_period('M'))\
             .agg({'price': 'sum'})\
@@ -1011,7 +1435,7 @@ def display_analysis(df):
         fig = create_monthly_spending_chart(monthly_data, 0)
         st.plotly_chart(fig, use_container_width=True)
     
-    with tab2:
+    with tab5:
         st.markdown("### Order Timing Analysis")
         timing_df, period_stats = prepare_time_analysis_data(df)
         
@@ -1543,6 +1967,547 @@ st.markdown("""
         
         .hero-message {
             font-size: 0.9rem;
+        }
+    }
+    
+    /* ============================================
+       WRAPPED EXPERIENCE STYLES
+       ============================================ */
+    
+    /* Wrapped Slides Container */
+    .wrapped-slide {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border-radius: 20px;
+        padding: 3rem 2rem;
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: white;
+        margin: 1rem 0;
+        animation: slideIn 0.5s ease-out;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+    
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateX(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+    
+    /* Slide 1: Intro */
+    .slide-intro {
+        background: linear-gradient(135deg, #FF2B85 0%, #e91e63 50%, #9c27b0 100%);
+    }
+    
+    .wrapped-year {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        opacity: 0.9;
+    }
+    
+    .wrapped-period {
+        font-size: 1rem;
+        opacity: 0.8;
+        margin-bottom: 2rem;
+    }
+    
+    .wrapped-big-number {
+        font-size: 6rem;
+        font-weight: 800;
+        line-height: 1;
+        background: linear-gradient(to bottom, #ffffff, #f0f0f0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-shadow: 0 4px 20px rgba(255, 255, 255, 0.3);
+        animation: numberPop 0.8s ease-out 0.3s both;
+    }
+    
+    @keyframes numberPop {
+        from {
+            transform: scale(0.5);
+            opacity: 0;
+        }
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+    
+    .wrapped-label {
+        font-size: 1.3rem;
+        margin-top: 1rem;
+        opacity: 0.9;
+    }
+    
+    .wrapped-subtitle {
+        font-size: 1rem;
+        margin-top: 2rem;
+        opacity: 0.7;
+        font-style: italic;
+    }
+    
+    /* Slide 2: Restaurant */
+    .slide-restaurant {
+        background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+    }
+    
+    .wrapped-small-text {
+        font-size: 1.2rem;
+        opacity: 0.9;
+        margin-bottom: 1rem;
+    }
+    
+    .wrapped-restaurant-name {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 1rem 0;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        animation: revealName 1s ease-out 0.3s both;
+    }
+    
+    @keyframes revealName {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .wrapped-stats-row {
+        display: flex;
+        gap: 3rem;
+        margin: 2rem 0;
+    }
+    
+    .wrapped-stat {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .wrapped-stat .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    
+    .wrapped-stat .stat-label {
+        font-size: 0.9rem;
+        opacity: 0.8;
+    }
+    
+    .wrapped-fun-fact {
+        font-size: 1.1rem;
+        background: rgba(255, 255, 255, 0.2);
+        padding: 0.8rem 1.5rem;
+        border-radius: 30px;
+        margin-top: 1rem;
+    }
+    
+    /* Slide 3: Spending */
+    .slide-spending {
+        background: linear-gradient(135deg, #2ecc71 0%, #27ae60 50%, #1abc9c 100%);
+    }
+    
+    .wrapped-big-money {
+        font-size: 3.5rem;
+        font-weight: 800;
+        margin: 1rem 0;
+        text-shadow: 0 2px 15px rgba(0, 0, 0, 0.2);
+    }
+    
+    .wrapped-equivalents {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+        width: 100%;
+        max-width: 400px;
+    }
+    
+    .equiv-title {
+        font-size: 0.9rem;
+        opacity: 0.8;
+        margin-bottom: 1rem;
+    }
+    
+    .comparison-item {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .comparison-item:last-child {
+        border-bottom: none;
+    }
+    
+    .comp-emoji {
+        font-size: 1.5rem;
+    }
+    
+    .comp-value {
+        font-weight: 700;
+        font-size: 1.2rem;
+    }
+    
+    .comp-unit {
+        opacity: 0.8;
+    }
+    
+    .wrapped-frequency {
+        font-size: 1rem;
+        margin-top: 1rem;
+        opacity: 0.9;
+    }
+    
+    /* Slide 4: Time */
+    .slide-time {
+        background: linear-gradient(135deg, #3498db 0%, #2980b9 50%, #8e44ad 100%);
+    }
+    
+    .wrapped-personality {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 1.5rem 0;
+        animation: personalityReveal 0.8s ease-out 0.3s both;
+    }
+    
+    @keyframes personalityReveal {
+        from {
+            opacity: 0;
+            transform: scale(0.8);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+    
+    .wrapped-peak-time {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 15px;
+        padding: 1.5rem 2.5rem;
+        margin: 1.5rem 0;
+    }
+    
+    .peak-label {
+        font-size: 0.9rem;
+        opacity: 0.8;
+    }
+    
+    .peak-value {
+        font-size: 3rem;
+        font-weight: 800;
+    }
+    
+    .wrapped-time-desc {
+        font-size: 1.1rem;
+        max-width: 300px;
+        line-height: 1.5;
+        opacity: 0.9;
+    }
+    
+    /* Slide 5: Summary */
+    .slide-summary {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        padding: 2rem;
+    }
+    
+    .summary-header {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 2rem;
+        color: #FF2B85;
+    }
+    
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1.5rem;
+        width: 100%;
+        max-width: 400px;
+        margin-bottom: 2rem;
+    }
+    
+    .summary-item {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1.2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .summary-emoji {
+        font-size: 1.5rem;
+        margin-bottom: 0.3rem;
+    }
+    
+    .summary-value {
+        font-size: 1.3rem;
+        font-weight: 700;
+    }
+    
+    .summary-label {
+        font-size: 0.8rem;
+        opacity: 0.7;
+    }
+    
+    .summary-personality {
+        background: linear-gradient(90deg, #FF2B85, #e91e63);
+        padding: 0.8rem 2rem;
+        border-radius: 30px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .summary-footer {
+        font-size: 0.9rem;
+        opacity: 0.6;
+    }
+    
+    /* ============================================
+       DIVERSITY SCORE STYLES
+       ============================================ */
+    
+    .diversity-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        padding: 2rem;
+        color: white;
+        text-align: center;
+        margin: 1rem 0;
+        box-shadow: 0 8px 30px rgba(102, 126, 234, 0.3);
+    }
+    
+    .diversity-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.8rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .diversity-emoji {
+        font-size: 2.5rem;
+    }
+    
+    .diversity-title {
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    
+    .diversity-score-container {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 15px;
+        padding: 1.5rem;
+        display: inline-block;
+        margin-bottom: 1.5rem;
+    }
+    
+    .diversity-score {
+        font-size: 3.5rem;
+        font-weight: 800;
+    }
+    
+    .diversity-score-label {
+        font-size: 0.9rem;
+        opacity: 0.8;
+    }
+    
+    .diversity-desc {
+        font-size: 1.1rem;
+        line-height: 1.5;
+        max-width: 400px;
+        margin: 0 auto 1.5rem;
+        opacity: 0.9;
+    }
+    
+    .diversity-stats {
+        display: flex;
+        justify-content: center;
+        gap: 3rem;
+    }
+    
+    .div-stat {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .div-stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    
+    .div-stat-label {
+        font-size: 0.85rem;
+        opacity: 0.8;
+    }
+    
+    .loyalty-badge {
+        background: linear-gradient(90deg, #f39c12, #e74c3c);
+        border-radius: 10px;
+        padding: 1rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.8rem;
+        margin: 1rem 0;
+        color: white;
+        font-weight: 600;
+    }
+    
+    .badge-emoji {
+        font-size: 1.5rem;
+    }
+    
+    .top-restaurant-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.8rem;
+        background: rgba(255, 43, 133, 0.05);
+        border-radius: 8px;
+        margin: 0.5rem 0;
+    }
+    
+    .tr-medal {
+        font-size: 1.3rem;
+    }
+    
+    .tr-name {
+        flex: 1;
+        font-weight: 500;
+        min-width: 120px;
+    }
+    
+    .tr-bar-container {
+        flex: 2;
+        height: 8px;
+        background: rgba(255, 43, 133, 0.1);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    
+    .tr-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #FF2B85, #e91e63);
+        border-radius: 4px;
+        transition: width 0.8s ease-out;
+    }
+    
+    .tr-count {
+        font-size: 0.9rem;
+        color: #666;
+        min-width: 80px;
+        text-align: right;
+    }
+    
+    /* ============================================
+       FUN COMPARISONS STYLES
+       ============================================ */
+    
+    .comparison-card {
+        background: linear-gradient(135deg, #fff5f8 0%, #ffffff 100%);
+        border-radius: 15px;
+        padding: 1.5rem;
+        text-align: center;
+        border: 2px solid rgba(255, 43, 133, 0.1);
+        transition: all 0.3s ease;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+    }
+    
+    .comparison-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(255, 43, 133, 0.15);
+        border-color: #FF2B85;
+    }
+    
+    .comp-card-emoji {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .comp-card-title {
+        font-size: 0.9rem;
+        color: #666;
+        margin-bottom: 0.5rem;
+    }
+    
+    .comp-card-value {
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: #FF2B85;
+        line-height: 1.2;
+    }
+    
+    .comp-card-unit {
+        font-size: 1rem;
+        color: #555;
+        margin-bottom: 0.5rem;
+    }
+    
+    .comp-card-subtitle {
+        font-size: 0.85rem;
+        color: #888;
+        line-height: 1.4;
+    }
+    
+    /* Responsive adjustments for wrapped */
+    @media (max-width: 768px) {
+        .wrapped-slide {
+            padding: 2rem 1rem;
+            min-height: 350px;
+        }
+        
+        .wrapped-big-number {
+            font-size: 4rem;
+        }
+        
+        .wrapped-restaurant-name {
+            font-size: 1.8rem;
+        }
+        
+        .wrapped-big-money {
+            font-size: 2.5rem;
+        }
+        
+        .wrapped-personality {
+            font-size: 1.8rem;
+        }
+        
+        .summary-grid {
+            gap: 1rem;
+        }
+        
+        .diversity-score {
+            font-size: 2.5rem;
+        }
+        
+        .comparison-card {
+            min-height: 180px;
         }
     }
     </style>
