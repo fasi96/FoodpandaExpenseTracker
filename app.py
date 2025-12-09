@@ -596,7 +596,44 @@ def generate_insights(df, total_spent, total_orders, avg_order):
             'description': f"You keep it economical with PKR {avg_order:,.0f} average orders!"
         })
     
-    return insights[:6]  # Return up to 6 insights
+    # Insight 7: Restaurant by Time of Day
+    df_time = df.copy()
+    df_time['hour'] = df_time['date'].dt.hour
+    
+    # Define time periods
+    def get_time_period_for_insight(hour):
+        if 5 <= hour < 12:
+            return 'Morning'
+        elif 12 <= hour < 17:
+            return 'Afternoon'
+        elif 17 <= hour < 22:
+            return 'Evening'
+        else:
+            return 'Late Night'
+    
+    df_time['time_period'] = df_time['hour'].apply(get_time_period_for_insight)
+    
+    # Get most ordered restaurant for each time period
+    time_restaurants = []
+    time_emojis = {'Morning': '🌅', 'Afternoon': '🌞', 'Evening': '🌆', 'Late Night': '🌙'}
+    
+    for period in ['Morning', 'Afternoon', 'Evening', 'Late Night']:
+        period_df = df_time[df_time['time_period'] == period]
+        if not period_df.empty:
+            top_rest = period_df.groupby('restaurant').size().sort_values(ascending=False)
+            if len(top_rest) > 0:
+                restaurant = top_rest.index[0]
+                count = int(top_rest.iloc[0])
+                time_restaurants.append(f"{time_emojis[period]} **{restaurant}** ({count})")
+    
+    if time_restaurants:
+        insights.append({
+            'icon': '⏰',
+            'title': 'Time-Based Favorites',
+            'description': "<br>".join(time_restaurants)
+        })
+    
+    return insights  # Return all insights
 
 def display_hero_section(df):
     """Display hero section spotlighting favorite restaurant."""
