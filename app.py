@@ -590,8 +590,11 @@ def calculate_budget_status(df, monthly_budget):
     if monthly_budget == 0:
         return None
     
-    # Get current month data
-    current_month = datetime.datetime.now().replace(day=1)
+    # Get current month data - handle timezone-aware dates
+    current_month = pd.Timestamp.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Make timezone-aware if dataframe dates are timezone-aware
+    if df['date'].dt.tz is not None:
+        current_month = current_month.tz_localize(df['date'].dt.tz)
     df_current = df[df['date'] >= current_month]
     
     current_month_spending = df_current['price'].sum()
@@ -599,9 +602,12 @@ def calculate_budget_status(df, monthly_budget):
     percentage_used = (current_month_spending / monthly_budget) * 100 if monthly_budget > 0 else 0
     
     # Calculate daily rate and projection
-    days_in_month = datetime.datetime.now().day
-    days_remaining = (datetime.datetime.now().replace(day=1) + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
-    days_remaining = days_remaining.day - days_in_month
+    now = pd.Timestamp.now()
+    days_in_month = now.day
+    # Calculate last day of current month
+    next_month = (now.replace(day=1) + pd.Timedelta(days=32)).replace(day=1)
+    last_day_of_month = (next_month - pd.Timedelta(days=1)).day
+    days_remaining = last_day_of_month - days_in_month
     
     daily_rate = current_month_spending / days_in_month if days_in_month > 0 else 0
     projected_spending = current_month_spending + (daily_rate * days_remaining)
