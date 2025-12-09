@@ -1363,6 +1363,9 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         transition: all 0.3s ease;
         height: 100%;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
     }
     
     .insight-card:hover {
@@ -1373,6 +1376,7 @@ st.markdown("""
     .insight-icon {
         font-size: 2rem;
         margin-bottom: 0.5rem;
+        flex-shrink: 0;
     }
     
     .insight-title {
@@ -1380,12 +1384,14 @@ st.markdown("""
         font-size: 1rem;
         color: #2c3e50;
         margin-bottom: 0.5rem;
+        flex-shrink: 0;
     }
     
     .insight-description {
         font-size: 0.9rem;
         color: #555;
         line-height: 1.4;
+        flex-grow: 1;
     }
     
     /* Budget Cards */
