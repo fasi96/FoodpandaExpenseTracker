@@ -26,9 +26,6 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 if "credentials" not in st.session_state:
     st.session_state["credentials"] = None
 
-# Store monthly budget in session
-if "monthly_budget" not in st.session_state:
-    st.session_state["monthly_budget"] = 0
 
 def get_authorization_url():
     """Generate Google OAuth authorization URL."""
@@ -204,15 +201,21 @@ def get_gmail_messages(credentials):
     months_diff = (latest_order.year - earliest_order.year) * 12 + (latest_order.month - earliest_order.month) + 1
     monthly_average = total_spent / months_diff if months_diff > 0 else 0
     
+    # Calculate daily average
+    total_days = (latest_order - earliest_order).days + 1
+    daily_average = total_spent / total_days if total_days > 0 else 0
+    
     # Display metrics in a container
     with st.container():
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
             st.metric("📦 Total Orders", f"{total_orders:,}")
         with col2:
             st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
             st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+        with col3:
+            st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
     
     # Display Insights Section
     st.markdown("### 💡 Key Insights")
@@ -233,54 +236,54 @@ def get_gmail_messages(credentials):
                         </div>
                     """, unsafe_allow_html=True)
     
-    # Display Budget Tracker if budget is set
-    if st.session_state["monthly_budget"] > 0:
-        st.markdown("### 💰 Budget Status (Current Month)")
-        budget_status = calculate_budget_status(df, st.session_state["monthly_budget"])
-        
-        if budget_status:
-            # Determine status styling
-            if budget_status['status'] == 'over':
-                status_emoji = "🚨"
-                status_text = "Over Budget"
-                progress_color = "#ff4444"
-            elif budget_status['status'] == 'warning':
-                status_emoji = "⚠️"
-                status_text = "Approaching Limit"
-                progress_color = "#ff9800"
-            else:
-                status_emoji = "✅"
-                status_text = "On Track"
-                progress_color = "#4CAF50"
-            
-            # Display budget card
-            st.markdown(f"""
-                <div class="budget-card budget-{budget_status['status']}">
-                    <div class="budget-header">
-                        <span class="budget-emoji">{status_emoji}</span>
-                        <span class="budget-status-text">{status_text}</span>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Display metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("💵 Budget", f"PKR {budget_status['budget']:,.0f}")
-            with col2:
-                st.metric("💸 Spent", f"PKR {budget_status['spent']:,.0f}")
-            with col3:
-                st.metric("💰 Remaining", f"PKR {budget_status['remaining']:,.0f}")
-            with col4:
-                st.metric("📊 Used", f"{budget_status['percentage_used']:.1f}%")
-            
-            # Progress bar
-            progress_value = min(budget_status['percentage_used'] / 100, 1.0)
-            st.progress(progress_value)
-            
-            # Projection
-            if budget_status['days_remaining'] > 0:
-                st.caption(f"📈 **Projection:** At current rate (PKR {budget_status['daily_rate']:,.0f}/day), you'll spend PKR {budget_status['projected_spending']:,.0f} this month.")
+    # Display Current Month Section
+    st.markdown("### 📍 Current Month Overview")
+    
+    # Calculate current month data
+    current_month = pd.Timestamp.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if df['date'].dt.tz is not None:
+        current_month = current_month.tz_localize(df['date'].dt.tz)
+    df_current = df[df['date'] >= current_month]
+    
+    current_month_spending = df_current['price'].sum()
+    current_month_orders = len(df_current)
+    current_month_avg = current_month_spending / current_month_orders if current_month_orders > 0 else 0
+    
+    # Calculate days
+    now = pd.Timestamp.now()
+    days_elapsed = now.day
+    next_month = (now.replace(day=1) + pd.Timedelta(days=32)).replace(day=1)
+    last_day_of_month = (next_month - pd.Timedelta(days=1)).day
+    days_remaining = last_day_of_month - days_elapsed
+    
+    # Calculate daily rate
+    daily_rate = current_month_spending / days_elapsed if days_elapsed > 0 else 0
+    
+    # Display current month card
+    st.markdown(f"""
+        <div class="insight-card" style="border-left: 4px solid #4CAF50;">
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <span style="font-size: 1.2rem; font-weight: 600; color: #2c3e50;">
+                    {now.strftime('%B %Y')}
+                </span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("💸 Spent This Month", f"PKR {current_month_spending:,.0f}")
+    with col2:
+        st.metric("📦 Orders", f"{current_month_orders}")
+    with col3:
+        st.metric("📊 Avg per Order", f"PKR {current_month_avg:,.0f}")
+    with col4:
+        st.metric("📅 Daily Rate", f"PKR {daily_rate:,.0f}")
+    
+    # Progress through month
+    progress_pct = (days_elapsed / last_day_of_month) * 100
+    st.caption(f"📆 **Day {days_elapsed} of {last_day_of_month}** ({progress_pct:.0f}% through the month · {days_remaining} days remaining)")
     
     st.markdown("---")
     
@@ -297,8 +300,8 @@ def get_gmail_messages(credentials):
         monthly_data['date'] = monthly_data['date'].dt.to_timestamp()
         monthly_data = monthly_data.sort_values('date')
 
-        # Create the bar chart with budget line
-        fig = create_monthly_spending_chart(monthly_data, st.session_state["monthly_budget"])
+        # Create the bar chart
+        fig = create_monthly_spending_chart(monthly_data, 0)
         st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
@@ -585,56 +588,6 @@ def generate_insights(df, total_spent, total_orders, avg_order):
     
     return insights[:6]  # Return up to 6 insights
 
-def calculate_budget_status(df, monthly_budget):
-    """Calculate budget status for the current month."""
-    if monthly_budget == 0:
-        return None
-    
-    # Get current month data - handle timezone-aware dates
-    current_month = pd.Timestamp.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # Make timezone-aware if dataframe dates are timezone-aware
-    if df['date'].dt.tz is not None:
-        current_month = current_month.tz_localize(df['date'].dt.tz)
-    df_current = df[df['date'] >= current_month]
-    
-    current_month_spending = df_current['price'].sum()
-    remaining = monthly_budget - current_month_spending
-    percentage_used = (current_month_spending / monthly_budget) * 100 if monthly_budget > 0 else 0
-    
-    # Calculate daily rate and projection
-    now = pd.Timestamp.now()
-    days_in_month = now.day
-    # Calculate last day of current month
-    next_month = (now.replace(day=1) + pd.Timedelta(days=32)).replace(day=1)
-    last_day_of_month = (next_month - pd.Timedelta(days=1)).day
-    days_remaining = last_day_of_month - days_in_month
-    
-    daily_rate = current_month_spending / days_in_month if days_in_month > 0 else 0
-    projected_spending = current_month_spending + (daily_rate * days_remaining)
-    
-    # Determine status
-    if percentage_used >= 100:
-        status = "over"
-        status_color = "red"
-    elif percentage_used >= 80:
-        status = "warning"
-        status_color = "orange"
-    else:
-        status = "good"
-        status_color = "green"
-    
-    return {
-        'budget': monthly_budget,
-        'spent': current_month_spending,
-        'remaining': remaining,
-        'percentage_used': percentage_used,
-        'status': status,
-        'status_color': status_color,
-        'daily_rate': daily_rate,
-        'projected_spending': projected_spending,
-        'days_remaining': days_remaining
-    }
-
 def create_monthly_spending_chart(monthly_data, monthly_budget=0):
     """Create and return the monthly spending trend chart."""
     fig = go.Figure()
@@ -857,13 +810,24 @@ def display_analysis(df):
         total_orders = len(df)
         avg_order = total_spent / total_orders if total_orders > 0 else 0
         
+        # Calculate daily average
+        date_range = (df['date'].max() - df['date'].min()).days + 1
+        daily_average = total_spent / date_range if date_range > 0 else 0
+        
+        # Calculate monthly average (total months in period)
+        months_diff = ((df['date'].max().year - df['date'].min().year) * 12 + 
+                      (df['date'].max().month - df['date'].min().month) + 1)
+        monthly_average = total_spent / months_diff if months_diff > 0 else 0
+        
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
-        with col2:
             st.metric("📦 Total Orders", str(total_orders))
-        with col3:
+        with col2:
             st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
+            st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+        with col3:
+            st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
     
     # Display Insights Section
     st.markdown("### 💡 Key Insights")
@@ -883,6 +847,55 @@ def display_analysis(df):
                             <div class="insight-description">{insight['description']}</div>
                         </div>
                     """, unsafe_allow_html=True)
+    
+    # Display Current Month Section
+    st.markdown("### 📍 Current Month Overview")
+    
+    # Calculate current month data
+    current_month = pd.Timestamp.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if df['date'].dt.tz is not None:
+        current_month = current_month.tz_localize(df['date'].dt.tz)
+    df_current = df[df['date'] >= current_month]
+    
+    current_month_spending = df_current['price'].sum()
+    current_month_orders = len(df_current)
+    current_month_avg = current_month_spending / current_month_orders if current_month_orders > 0 else 0
+    
+    # Calculate days
+    now = pd.Timestamp.now()
+    days_elapsed = now.day
+    next_month = (now.replace(day=1) + pd.Timedelta(days=32)).replace(day=1)
+    last_day_of_month = (next_month - pd.Timedelta(days=1)).day
+    days_remaining = last_day_of_month - days_elapsed
+    
+    # Calculate daily rate
+    daily_rate = current_month_spending / days_elapsed if days_elapsed > 0 else 0
+    
+    # Display current month card
+    st.markdown(f"""
+        <div class="insight-card" style="border-left: 4px solid #4CAF50;">
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <span style="font-size: 1.2rem; font-weight: 600; color: #2c3e50;">
+                    {now.strftime('%B %Y')}
+                </span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("💸 Spent This Month", f"PKR {current_month_spending:,.0f}")
+    with col2:
+        st.metric("📦 Orders", f"{current_month_orders}")
+    with col3:
+        st.metric("📊 Avg per Order", f"PKR {current_month_avg:,.0f}")
+    with col4:
+        st.metric("📅 Daily Rate", f"PKR {daily_rate:,.0f}")
+    
+    # Progress through month
+    progress_pct = (days_elapsed / last_day_of_month) * 100
+    st.caption(f"📆 **Day {days_elapsed} of {last_day_of_month}** ({progress_pct:.0f}% through the month · {days_remaining} days remaining)")
     
     st.markdown("---")
     
@@ -929,22 +942,6 @@ else:
 
 # Add a navigation menu in the sidebar
 page = st.sidebar.radio("Navigation", ["Home", "Privacy Policy"], index=0 if current_page == "Home" else 1)
-
-# Add budget tracker in sidebar
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 💰 Monthly Budget Tracker")
-monthly_budget = st.sidebar.number_input(
-    "Set your monthly budget (PKR)",
-    min_value=0,
-    value=st.session_state["monthly_budget"],
-    step=1000,
-    help="Set a monthly budget to track your spending"
-)
-st.session_state["monthly_budget"] = monthly_budget
-
-if monthly_budget > 0:
-    st.sidebar.markdown(f"**Budget:** PKR {monthly_budget:,.0f}")
-    st.sidebar.caption("Your budget will be displayed in the analysis section.")
 
 # Update URL when page changes
 if page == "Privacy Policy" and current_page != "Privacy Policy":
