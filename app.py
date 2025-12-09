@@ -492,14 +492,21 @@ def generate_insights(df, total_spent, total_orders, avg_order):
     """Generate intelligent insights from the order data."""
     insights = []
     
-    # Insight 1: Favorite Restaurant
+    # Insight 1: Top 3 Restaurants
     if not df.empty:
-        top_restaurant = df.groupby('restaurant')['restaurant'].count().sort_values(ascending=False).index[0]
-        top_restaurant_orders = df.groupby('restaurant')['restaurant'].count().sort_values(ascending=False).iloc[0]
+        top_restaurants = df.groupby('restaurant')['restaurant'].count().sort_values(ascending=False).head(3)
+        
+        # Format top 3 restaurants
+        top_3_text = []
+        medals = ['🥇', '🥈', '🥉']
+        for i, (restaurant, count) in enumerate(top_restaurants.items()):
+            if i < 3:
+                top_3_text.append(f"{medals[i]} **{restaurant}** ({int(count)})")
+        
         insights.append({
             'icon': '🏆',
-            'title': 'Top Restaurant',
-            'description': f"You've ordered from **{top_restaurant}** {top_restaurant_orders} times!"
+            'title': 'Top 3 Restaurants',
+            'description': "<br>".join(top_3_text)
         })
     
     # Insight 2: Most Ordered Day of Week
