@@ -185,6 +185,9 @@ def get_gmail_messages(credentials):
     df = pd.DataFrame(data_dict)
     df['date'] = pd.to_datetime(df['date'])
     
+    # Store in session state so data persists across reruns
+    st.session_state['analysis_data'] = df
+    
     # Calculate date range for display
     latest_order = df['date'].max()
     earliest_order = df['date'].min()
@@ -1581,15 +1584,298 @@ else:  # Home page
         st.success("✅ Connected to Gmail")
         credentials = google.oauth2.credentials.Credentials(**st.session_state["credentials"])
         
-        days_to_analyze = st.slider("Select days to analyze", 30, 365, 365)
-        
-        if st.button("📊 Analyze My Food Expenses", type="primary"):
-            with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
-                get_gmail_messages(credentials)
-        
-        if st.button("🔓 Disconnect Gmail", type="secondary"):
-            del st.session_state["credentials"]
-            st.rerun()
+        # Check if we already have analysis data
+        if 'analysis_data' in st.session_state and st.session_state['analysis_data'] is not None:
+            # Display the analysis from stored data
+            df = st.session_state['analysis_data']
+            
+            # Calculate date range for display
+            latest_order = df['date'].max()
+            earliest_order = df['date'].min()
+            date_range = f"{earliest_order.strftime('%B %d, %Y')} - {latest_order.strftime('%B %d, %Y')}"
+            
+            # Display header
+            st.markdown("## 📊 Analysis Results")
+            st.markdown(f"### 📅 Period: {date_range}")
+            
+            # Calculate key metrics
+            total_spent = df['price'].sum()
+            total_orders = len(df)
+            avg_order = total_spent / total_orders if total_orders > 0 else 0
+            months_diff = (latest_order.year - earliest_order.year) * 12 + (latest_order.month - earliest_order.month) + 1
+            monthly_average = total_spent / months_diff if months_diff > 0 else 0
+            total_days = (latest_order - earliest_order).days + 1
+            daily_average = total_spent / total_days if total_days > 0 else 0
+            
+            # Display metrics
+            with st.container():
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
+                    st.metric("📦 Total Orders", f"{total_orders:,}")
+                with col2:
+                    st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
+                    st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+                with col3:
+                    st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
+            
+            # Display Hero Section
+            display_hero_section(df)
+            
+            # Display Insights Section
+            st.markdown("### 💡 Key Insights")
+            insights = generate_insights(df, total_spent, total_orders, avg_order)
+            
+            for i in range(0, len(insights), 3):
+                cols = st.columns(3)
+                for j, col in enumerate(cols):
+                    if i + j < len(insights):
+                        insight = insights[i + j]
+                        with col:
+                            st.markdown(f"""
+                                <div class="insight-card">
+                                    <div class="insight-icon">{insight['icon']}</div>
+                                    <div class="insight-title">{insight['title']}</div>
+                                    <div class="insight-description">{insight['description']}</div>
+                                </div>
+                            """, unsafe_allow_html=True)
+            
+            # Display Current Month Section
+            st.markdown("### 📍 Current Month Overview")
+            current_month = pd.Timestamp.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if df['date'].dt.tz is not None:
+                current_month = current_month.tz_localize(df['date'].dt.tz)
+            df_current = df[df['date'] >= current_month]
+            
+            current_month_spending = df_current['price'].sum()
+            current_month_orders = len(df_current)
+            current_month_avg = current_month_spending / current_month_orders if current_month_orders > 0 else 0
+            
+            now = pd.Timestamp.now()
+            days_elapsed = now.day
+            next_month = (now.replace(day=1) + pd.Timedelta(days=32)).replace(day=1)
+            last_day_of_month = (next_month - pd.Timedelta(days=1)).day
+            days_remaining = last_day_of_month - days_elapsed
+            daily_rate = current_month_spending / days_elapsed if days_elapsed > 0 else 0
+            
+            st.markdown(f'<div class="current-month-header">{now.strftime("%B %Y")}</div>', unsafe_allow_html=True)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("💸 Spent This Month", f"PKR {current_month_spending:,.0f}")
+            with col2:
+                st.metric("📦 Orders", f"{current_month_orders}")
+            with col3:
+                st.metric("📊 Avg per Order", f"PKR {current_month_avg:,.0f}")
+            with col4:
+                st.metric("📅 Daily Rate", f"PKR {daily_rate:,.0f}")
+            
+            progress_pct = (days_elapsed / last_day_of_month) * 100
+            st.caption(f"📆 **Day {days_elapsed} of {last_day_of_month}** ({progress_pct:.0f}% through the month · {days_remaining} days remaining)")
+            
+            st.markdown("---")
+            
+            # Create tabs for different analysis sections
+            tab_wrapped, tab_diversity, tab_fun, tab1, tab2, tab3 = st.tabs(["🎁 Wrapped", "📊 Diversity", "💡 Fun Facts", "📈 Spending Trends", "⏰ Time Analysis", "🏪 Restaurant Analysis"])
+            
+            with tab_wrapped:
+                st.markdown("### 🎁 Your Foodpanda Wrapped")
+                st.markdown("Experience your food journey like never before!")
+                display_wrapped_experience(df)
+            
+            with tab_diversity:
+                st.markdown("### 🎯 Restaurant Diversity Score")
+                st.markdown("Are you an explorer or a loyalist?")
+                display_diversity_section(df)
+            
+            with tab_fun:
+                display_fun_comparisons(df)
+            
+            with tab1:
+                st.markdown("### Monthly Spending Trend")
+                monthly_data = df.groupby(df['date'].dt.to_period('M')).agg({'price': 'sum'}).reset_index()
+                monthly_data['date'] = monthly_data['date'].dt.to_timestamp()
+                monthly_data = monthly_data.sort_values('date')
+                fig = create_monthly_spending_chart(monthly_data, 0)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with tab2:
+                st.markdown("### Order Timing Analysis")
+                timing_df = df.copy()
+                timing_df['hour'] = timing_df['date'].dt.hour
+                timing_df['day_of_week'] = timing_df['date'].dt.day_name()
+                
+                st.markdown("##### 24-Hour Order Distribution")
+                
+                def get_time_period(hour):
+                    if 5 <= hour < 12:
+                        return 'Morning'
+                    elif 12 <= hour < 17:
+                        return 'Afternoon'
+                    elif 17 <= hour < 22:
+                        return 'Evening'
+                    else:
+                        return 'Late Night'
+
+                timing_df['time_period'] = timing_df['hour'].apply(get_time_period)
+                period_stats = timing_df.groupby('time_period').agg({'price': ['sum', 'mean']}).round(2)
+                
+                hour_counts = timing_df['hour'].value_counts().sort_index()
+                fig_radial = go.Figure()
+                
+                max_value = max(hour_counts.values)
+                separators = [75, 180, 255, 330]
+                for angle in separators:
+                    fig_radial.add_trace(go.Scatterpolar(
+                        r=[max_value * 1.4, max_value * 1.8],
+                        theta=[angle, angle],
+                        mode='lines',
+                        line=dict(color='rgba(255, 255, 255, 0.5)', width=1),
+                        hoverinfo='skip',
+                        showlegend=False
+                    ))
+                
+                fig_radial.add_trace(go.Barpolar(
+                    r=hour_counts.values,
+                    theta=hour_counts.index.map(lambda x: x * 15),
+                    width=15,
+                    marker=dict(
+                        color=hour_counts.values,
+                        colorscale=[[0, '#FFE5EE'], [1, '#FF2B85']],
+                        showscale=False
+                    ),
+                    hovertemplate="Hour: %{customdata}<br>Orders: %{r}<extra></extra>",
+                    customdata=[f'{i:02d}:00' for i in hour_counts.index]
+                ))
+
+                most_common_hour = timing_df['hour'].mode().iloc[0]
+                most_common_hour_formatted = f"{most_common_hour:02d}:00"
+
+                fig_radial.update_layout(
+                    polar=dict(
+                        radialaxis=dict(showticklabels=False, ticks='', range=[0, max_value]),
+                        angularaxis=dict(
+                            tickmode='array',
+                            ticktext=['12 AM', '3 AM', '6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'],
+                            tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
+                            direction='clockwise',
+                            rotation=90,
+                        ),
+                        domain=dict(x=[0.15, 0.85], y=[0.15, 0.85])
+                    ),
+                    height=600,
+                    margin=dict(t=100, b=80, l=50, r=50),
+                    showlegend=False,
+                    title=dict(
+                        text=f"🕒 Peak Order Time: {most_common_hour_formatted}",
+                        y=0.95,
+                        x=0.5,
+                        xanchor='center',
+                        yanchor='top',
+                        font=dict(size=16, color='#FF2B85')
+                    ),
+                    annotations=[
+                        dict(
+                            x=0.5, y=1.07,
+                            text=f"🌅 Morning (5-11:59 AM)<br><b>Total: {period_stats.loc['Morning', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Morning', ('price', 'mean')]/1000:.1f}K",
+                            showarrow=False,
+                            font=dict(size=11),
+                            align='center',
+                            xref='paper',
+                            yref='paper'
+                        ),
+                        dict(
+                            x=1.07, y=0.5,
+                            text=f"🌞 Afternoon (12-4:59 PM)<br><b>Total: {period_stats.loc['Afternoon', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Afternoon', ('price', 'mean')]/1000:.1f}K",
+                            showarrow=False,
+                            font=dict(size=11),
+                            align='left',
+                            xref='paper',
+                            yref='paper'
+                        ),
+                        dict(
+                            x=0.5, y=-0.07,
+                            text=f"🌆 Evening (5-9:59 PM)<br><b>Total: {period_stats.loc['Evening', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Evening', ('price', 'mean')]/1000:.1f}K",
+                            showarrow=False,
+                            font=dict(size=11),
+                            align='center',
+                            xref='paper',
+                            yref='paper'
+                        ),
+                        dict(
+                            x=-0.07, y=0.5,
+                            text=f"🌙 Late Night (10 PM - 4:59 AM)<br><b>Total: {period_stats.loc['Late Night', ('price', 'sum')]/1000:.1f}K</b> | Avg: {period_stats.loc['Late Night', ('price', 'mean')]/1000:.1f}K",
+                            showarrow=False,
+                            font=dict(size=11),
+                            align='right',
+                            xref='paper',
+                            yref='paper'
+                        )
+                    ]
+                )
+                
+                st.plotly_chart(fig_radial, use_container_width=True)
+                st.caption("""
+                📌 **K** = Thousands (PKR)  
+                🛒 **Total** = Total spending in this time range  
+                📊 **Avg** = Average order amount  
+                """)
+            
+            with tab3:
+                st.markdown("### Restaurant Analysis")
+                restaurant_summary = df.groupby('restaurant').agg({'price': ['sum', 'count', 'mean']}).round(2)
+                restaurant_summary.columns = ['Total Spent', 'Number of Orders', 'Average Order']
+                restaurant_summary = restaurant_summary.sort_values('Number of Orders', ascending=False)
+                
+                st.markdown("#### Top 10 Most Ordered From Restaurants")
+                top_restaurants = restaurant_summary.head(10)
+                st.dataframe(top_restaurants, use_container_width=True)
+                
+                st.markdown("#### Monthly Top 3 Restaurants")
+                df_copy = df.copy()
+                df_copy['month_year'] = df_copy['date'].dt.strftime('%B %Y')
+                months = sorted(df_copy['month_year'].unique(), key=lambda x: pd.to_datetime(x, format='%B %Y'), reverse=True)
+                
+                monthly_summary = []
+                for month in months:
+                    month_data = df_copy[df_copy['month_year'] == month]
+                    top_3 = month_data.groupby('restaurant').agg({'price': 'sum', 'restaurant': 'count'}).round(2)
+                    top_3.columns = ['Total Spent', 'Orders']
+                    top_3 = top_3.sort_values('Total Spent', ascending=False).head(3)
+                    
+                    formatted_top_3 = [f"{restaurant} ({orders} - PKR {spent:,.0f})" for restaurant, (spent, orders) in top_3.iterrows()]
+                    while len(formatted_top_3) < 3:
+                        formatted_top_3.append("")
+                    
+                    monthly_summary.append({'Month': month, '1st': formatted_top_3[0], '2nd': formatted_top_3[1], '3rd': formatted_top_3[2]})
+                
+                monthly_summary_df = pd.DataFrame(monthly_summary)
+                st.dataframe(monthly_summary_df, hide_index=True, use_container_width=True)
+            
+            # Add button to refresh data
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Refresh Data", type="secondary"):
+                    st.session_state['analysis_data'] = None
+                    st.rerun()
+            with col2:
+                if st.button("🔓 Disconnect Gmail", type="secondary"):
+                    st.session_state['analysis_data'] = None
+                    del st.session_state["credentials"]
+                    st.rerun()
+        else:
+            # No analysis data yet, show the analyze button
+            days_to_analyze = st.slider("Select days to analyze", 30, 365, 365)
+            
+            if st.button("📊 Analyze My Food Expenses", type="primary"):
+                with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
+                    get_gmail_messages(credentials)
+                    st.rerun()
+            
+            if st.button("🔓 Disconnect Gmail", type="secondary"):
+                del st.session_state["credentials"]
+                st.rerun()
 
     else:
         # Sign-in section
