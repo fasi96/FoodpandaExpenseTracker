@@ -22,6 +22,20 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
+# Per-country FoodPanda email format configuration
+COUNTRIES = {
+    "Pakistan": {
+        "sender": "no-reply@mail.foodpanda.pk",
+        "currency": "PKR",
+        "flag": "🇵🇰",
+    },
+    "Bangladesh": {
+        "sender": "info@mail.foodpanda.com.bd",
+        "currency": "Tk",
+        "flag": "🇧🇩",
+    },
+}
+
 # Store user credentials in session
 if "credentials" not in st.session_state:
     st.session_state["credentials"] = None
@@ -53,7 +67,48 @@ def exchange_code_for_tokens(auth_code):
         raise Exception(f"Failed to exchange code: {response.text}")
     return response.json()
 
-def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
+def parse_order_email(decoded_content, country):
+    """Extract (price, restaurant) from a Foodpanda order email body for the given country."""
+    if country == "Bangladesh":
+        # BD format: "Order Total Tk 571.90" and "Store <restaurant name>"
+        try:
+            price_str = decoded_content.split('Order Total')[1].split('Tk')[1].split('\n')[0].strip()
+            price_match = re.search(r'([\d,]+\.?\d*)', price_str)
+            price = float(price_match.group(1).replace(',', '')) if price_match else 0
+        except Exception:
+            price = 0
+
+        try:
+            match = re.search(r'Store\s+([^\n<]+)', decoded_content)
+            restaurant = match.group(1).strip() if match else "Panda Mart"
+        except Exception:
+            restaurant = "Panda Mart"
+
+        return price, restaurant
+
+    # Default: Pakistan format
+    try:
+        price_str = decoded_content.split('Total')[1].split('PKR')[1].split('\n')[0].strip()
+    except Exception:
+        try:
+            price_str = decoded_content.split('Received')[1].split('Rs.')[1].split('\n')[0].strip()
+        except Exception:
+            price_str = ""
+
+    try:
+        price = float(price_str.replace(',', ''))
+    except Exception:
+        price = 0
+
+    try:
+        match = re.search(r'Partner:\s*Name:\s*(.+)', decoded_content)
+        restaurant = match.group(1).strip() if match else "Panda Mart"
+    except Exception:
+        restaurant = "Panda Mart"
+
+    return price, restaurant
+
+def get_emails_from_sender(service, sender_email, country="Pakistan", currency="PKR", days=365, max_results=1000):
     # indicate that it will only process 1000 emails
     st.write("This will only process latest 1000 emails")
     """Fetching Emails from Foodpanda"""
@@ -97,35 +152,20 @@ def get_emails_from_sender(service, sender_email, days=365, max_results=1000):
             date = next((h["value"] for h in headers if h["name"] == "Date"), "No Date")
             content = msg_details["payload"]["parts"][0]["body"]["data"]
             decoded_content = base64.urlsafe_b64decode(content).decode('utf-8')
-            
-            try:
-                price = decoded_content.split('Total')[1].split('PKR')[1].split('\n')[0].strip()
-            except:
-                price = decoded_content.split('Received')[1].split('Rs.')[1].split('\n')[0].strip()
 
-            try:
-                price = float(price.replace(',', ''))
-            except:
-                price = 0
-                
-            # Extract restaurant name
-            try:
-                restaurant = re.search(r'Partner:\s*Name:\s*(.+)', decoded_content)
-                restaurant = restaurant.group(1).strip() if restaurant else "Panda Mart"
-            except:
-                restaurant = "Panda Mart"
-            
+            price, restaurant = parse_order_email(decoded_content, country)
+
             data_dict['date'].append(date)
             data_dict['price'].append(price)
             data_dict['restaurant'].append(restaurant)
-            
+
             # Update running totals and progress
             running_total += price
             processed_count += 1
-            
+
             # Update progress indicators
             progress_counter.progress(i / total_messages, f"Processing email {i} of {total_messages}")
-            current_total.metric("Running Total", f"PKR {running_total:,.2f}")
+            current_total.metric("Running Total", f"{currency} {running_total:,.2f}")
             emails_processed.metric("Emails Processed", f"{processed_count}/{total_messages}")
 
         # Clear progress indicators
@@ -163,30 +203,37 @@ def load_from_csv():
         st.error(f"Error loading data: {str(e)}")
         return None
 
-def get_gmail_messages(credentials):
+def get_gmail_messages(credentials, country="Pakistan"):
     """Fetch and analyze Foodpanda expenses from Gmail."""
+    config = COUNTRIES[country]
+    sender_email = config["sender"]
+    currency = config["currency"]
     service = googleapiclient.discovery.build("gmail", "v1", credentials=credentials)
-    
+
     # Get expenses data
     data_dict = {'date': [], 'price': [], 'restaurant': []}
     try:
-        service_results = get_emails_from_sender(service, "no-reply@mail.foodpanda.pk", days=days_to_analyze)
+        service_results = get_emails_from_sender(
+            service, sender_email, country=country, currency=currency, days=days_to_analyze
+        )
         if service_results:
             data_dict = service_results
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         return
-    
+
     if not data_dict['date']:
         st.warning("📭 No Foodpanda orders found in the specified period.")
         return
-    
+
     # Convert to DataFrame and process dates
     df = pd.DataFrame(data_dict)
     df['date'] = pd.to_datetime(df['date'])
-    
+
     # Store in session state so data persists across reruns
     st.session_state['analysis_data'] = df
+    st.session_state['analysis_country'] = country
+    st.session_state['analysis_currency'] = currency
     
     # Calculate date range for display
     latest_order = df['date'].max()
@@ -212,14 +259,14 @@ def get_gmail_messages(credentials):
     with st.container():
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
+            st.metric("💰 Total Spent", f"{currency} {total_spent:,.2f}")
             st.metric("📦 Total Orders", f"{total_orders:,}")
         with col2:
-            st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
-            st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+            st.metric("📊 Average Order", f"{currency} {avg_order:,.2f}")
+            st.metric("📅 Monthly Average", f"{currency} {monthly_average:,.2f}")
         with col3:
-            st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
-    
+            st.metric("📆 Daily Average", f"{currency} {daily_average:,.2f}")
+
     # Display Hero Section
     display_hero_section(df)
     
@@ -275,20 +322,20 @@ def get_gmail_messages(credentials):
     # Display metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("💸 Spent This Month", f"PKR {current_month_spending:,.0f}")
+        st.metric("💸 Spent This Month", f"{currency} {current_month_spending:,.0f}")
     with col2:
         st.metric("📦 Orders", f"{current_month_orders}")
     with col3:
-        st.metric("📊 Avg per Order", f"PKR {current_month_avg:,.0f}")
+        st.metric("📊 Avg per Order", f"{currency} {current_month_avg:,.0f}")
     with col4:
-        st.metric("📅 Daily Rate", f"PKR {daily_rate:,.0f}")
-    
+        st.metric("📅 Daily Rate", f"{currency} {daily_rate:,.0f}")
+
     # Progress through month
     progress_pct = (days_elapsed / last_day_of_month) * 100
     st.caption(f"📆 **Day {days_elapsed} of {last_day_of_month}** ({progress_pct:.0f}% through the month · {days_remaining} days remaining)")
-    
+
     st.markdown("---")
-    
+
     # Create tabs for different analysis sections
     tab_wrapped, tab_diversity, tab_fun, tab1, tab2, tab3 = st.tabs(["🎁 Wrapped", "📊 Diversity", "💡 Fun Facts", "📈 Spending Trends", "⏰ Time Analysis", "🏪 Restaurant Analysis"])
     
@@ -444,34 +491,34 @@ def get_gmail_messages(credentials):
         
         st.plotly_chart(fig_radial, use_container_width=True)
 
-        st.caption("""
-        📌 **K** = Thousands (PKR)  
-        🛒 **Total** = Total spending in this time range  
-        📊 **Avg** = Average order amount  
+        st.caption(f"""
+        📌 **K** = Thousands ({currency})
+        🛒 **Total** = Total spending in this time range
+        📊 **Avg** = Average order amount
         """)
-    
+
     with tab3:
         st.markdown("### Restaurant Analysis")
-        
+
         # Overall top restaurants
         restaurant_summary = df.groupby('restaurant').agg({
             'price': ['sum', 'count', 'mean']
         }).round(2)
         restaurant_summary.columns = ['Total Spent', 'Number of Orders', 'Average Order']
         restaurant_summary = restaurant_summary.sort_values('Number of Orders', ascending=False)
-        
+
         # Display top 10 most ordered from restaurants
         st.markdown("#### Top 10 Most Ordered From Restaurants")
         top_restaurants = restaurant_summary.head(10)
         st.dataframe(top_restaurants, use_container_width=True)
-        
+
         # Monthly top 3 restaurants
         st.markdown("#### Monthly Top 3 Restaurants")
         df['month_year'] = pd.to_datetime(df['date']).dt.strftime('%B %Y')
-        
+
         # Sort months in descending order
         months = sorted(df['month_year'].unique(), key=lambda x: pd.to_datetime(x, format='%B %Y'), reverse=True)
-        
+
         monthly_summary = []
         for month in months:
             month_data = df[df['month_year'] == month]
@@ -481,22 +528,22 @@ def get_gmail_messages(credentials):
             }).round(2)
             top_3.columns = ['Total Spent', 'Orders']
             top_3 = top_3.sort_values('Total Spent', ascending=False).head(3)
-            
+
             formatted_top_3 = [
-                f"{restaurant} ({orders} - PKR {spent:,.0f})"
+                f"{restaurant} ({orders} - {currency} {spent:,.0f})"
                 for restaurant, (spent, orders) in top_3.iterrows()
             ]
-            
+
             while len(formatted_top_3) < 3:
                 formatted_top_3.append("")
-                
+
             monthly_summary.append({
                 'Month': month,
                 '1st': formatted_top_3[0],
                 '2nd': formatted_top_3[1],
                 '3rd': formatted_top_3[2]
             })
-        
+
         monthly_summary_df = pd.DataFrame(monthly_summary)
         st.dataframe(monthly_summary_df, hide_index=True, use_container_width=True)
 
@@ -1588,7 +1635,8 @@ else:  # Home page
         if 'analysis_data' in st.session_state and st.session_state['analysis_data'] is not None:
             # Display the analysis from stored data
             df = st.session_state['analysis_data']
-            
+            currency = st.session_state.get('analysis_currency', 'PKR')
+
             # Calculate date range for display
             latest_order = df['date'].max()
             earliest_order = df['date'].min()
@@ -1611,13 +1659,13 @@ else:  # Home page
             with st.container():
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("💰 Total Spent", f"PKR {total_spent:,.2f}")
+                    st.metric("💰 Total Spent", f"{currency} {total_spent:,.2f}")
                     st.metric("📦 Total Orders", f"{total_orders:,}")
                 with col2:
-                    st.metric("📊 Average Order", f"PKR {avg_order:,.2f}")
-                    st.metric("📅 Monthly Average", f"PKR {monthly_average:,.2f}")
+                    st.metric("📊 Average Order", f"{currency} {avg_order:,.2f}")
+                    st.metric("📅 Monthly Average", f"{currency} {monthly_average:,.2f}")
                 with col3:
-                    st.metric("📆 Daily Average", f"PKR {daily_average:,.2f}")
+                    st.metric("📆 Daily Average", f"{currency} {daily_average:,.2f}")
             
             # Display Hero Section
             display_hero_section(df)
@@ -1662,13 +1710,13 @@ else:  # Home page
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("💸 Spent This Month", f"PKR {current_month_spending:,.0f}")
+                st.metric("💸 Spent This Month", f"{currency} {current_month_spending:,.0f}")
             with col2:
                 st.metric("📦 Orders", f"{current_month_orders}")
             with col3:
-                st.metric("📊 Avg per Order", f"PKR {current_month_avg:,.0f}")
+                st.metric("📊 Avg per Order", f"{currency} {current_month_avg:,.0f}")
             with col4:
-                st.metric("📅 Daily Rate", f"PKR {daily_rate:,.0f}")
+                st.metric("📅 Daily Rate", f"{currency} {daily_rate:,.0f}")
             
             progress_pct = (days_elapsed / last_day_of_month) * 100
             st.caption(f"📆 **Day {days_elapsed} of {last_day_of_month}** ({progress_pct:.0f}% through the month · {days_remaining} days remaining)")
@@ -1815,10 +1863,10 @@ else:  # Home page
                 )
                 
                 st.plotly_chart(fig_radial, use_container_width=True)
-                st.caption("""
-                📌 **K** = Thousands (PKR)  
-                🛒 **Total** = Total spending in this time range  
-                📊 **Avg** = Average order amount  
+                st.caption(f"""
+                📌 **K** = Thousands ({currency})
+                🛒 **Total** = Total spending in this time range
+                📊 **Avg** = Average order amount
                 """)
             
             with tab3:
@@ -1843,10 +1891,10 @@ else:  # Home page
                     top_3.columns = ['Total Spent', 'Orders']
                     top_3 = top_3.sort_values('Total Spent', ascending=False).head(3)
                     
-                    formatted_top_3 = [f"{restaurant} ({orders} - PKR {spent:,.0f})" for restaurant, (spent, orders) in top_3.iterrows()]
+                    formatted_top_3 = [f"{restaurant} ({orders} - {currency} {spent:,.0f})" for restaurant, (spent, orders) in top_3.iterrows()]
                     while len(formatted_top_3) < 3:
                         formatted_top_3.append("")
-                    
+
                     monthly_summary.append({'Month': month, '1st': formatted_top_3[0], '2nd': formatted_top_3[1], '3rd': formatted_top_3[2]})
                 
                 monthly_summary_df = pd.DataFrame(monthly_summary)
@@ -1858,21 +1906,33 @@ else:  # Home page
             with col1:
                 if st.button("🔄 Refresh Data", type="secondary"):
                     st.session_state['analysis_data'] = None
+                    st.session_state.pop('analysis_country', None)
+                    st.session_state.pop('analysis_currency', None)
                     st.rerun()
             with col2:
                 if st.button("🔓 Disconnect Gmail", type="secondary"):
                     st.session_state['analysis_data'] = None
+                    st.session_state.pop('analysis_country', None)
+                    st.session_state.pop('analysis_currency', None)
                     del st.session_state["credentials"]
                     st.rerun()
         else:
             # No analysis data yet, show the analyze button
+            country_options = [f"{cfg['flag']} {name}" for name, cfg in COUNTRIES.items()]
+            country_label = st.selectbox(
+                "Select your FoodPanda country",
+                country_options,
+                help="Picks the right sender address and currency for parsing your order emails.",
+            )
+            selected_country = country_label.split(" ", 1)[1]
+
             days_to_analyze = st.slider("Select days to analyze", 30, 365, 365)
-            
+
             if st.button("📊 Analyze My Food Expenses", type="primary"):
                 with st.spinner(f"Analyzing your FoodPanda orders from the last {days_to_analyze} days..."):
-                    get_gmail_messages(credentials)
+                    get_gmail_messages(credentials, country=selected_country)
                     st.rerun()
-            
+
             if st.button("🔓 Disconnect Gmail", type="secondary"):
                 del st.session_state["credentials"]
                 st.rerun()
@@ -1885,7 +1945,7 @@ else:  # Home page
         
         ⚠️ **Important Note About Google Security Warning**
         When connecting your Gmail account, you'll see a security warning from Google because this app isn't verified. This is normal for open-source projects. The app:
-        - Only reads emails from "no-reply@mail.foodpanda.pk"
+        - Only reads FoodPanda order emails (Pakistan: `no-reply@mail.foodpanda.pk`, Bangladesh: `info@mail.foodpanda.com.bd`)
         - Cannot access any other emails or perform any actions
         - Doesn't store any of your data
         

@@ -2,3 +2,5 @@ venv/
 .streamlit/
 test.ipynb
 creds/
+*.pdf
+__pycache__/
