@@ -22,17 +22,37 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-# Per-country FoodPanda email format configuration
+# Per-country FoodPanda email format + cultural pricing for fun comparisons
 COUNTRIES = {
     "Pakistan": {
         "sender": "no-reply@mail.foodpanda.pk",
         "currency": "PKR",
         "flag": "🇵🇰",
+        "high_avg_threshold": 1500,
+        "low_avg_threshold": 800,
+        "pricing": {
+            "chai": 50,
+            "biryani": 350,
+            "movie": 800,
+            "petrol": 280,
+            "iphone": 450000,
+        },
+        "fuel": {"km_per_liter": 15, "route_name": "Karachi to Islamabad", "route_km": 1400},
     },
     "Bangladesh": {
         "sender": "info@mail.foodpanda.com.bd",
         "currency": "Tk",
         "flag": "🇧🇩",
+        "high_avg_threshold": 500,
+        "low_avg_threshold": 250,
+        "pricing": {
+            "chai": 15,
+            "biryani": 200,
+            "movie": 350,
+            "petrol": 135,
+            "iphone": 165000,
+        },
+        "fuel": {"km_per_liter": 15, "route_name": "Dhaka to Cox's Bazar", "route_km": 415},
     },
 }
 
@@ -268,11 +288,11 @@ def get_gmail_messages(credentials, country="Pakistan"):
             st.metric("📆 Daily Average", f"{currency} {daily_average:,.2f}")
 
     # Display Hero Section
-    display_hero_section(df)
-    
+    display_hero_section(df, currency)
+
     # Display Insights Section
     st.markdown("### 💡 Key Insights")
-    insights = generate_insights(df, total_spent, total_orders, avg_order)
+    insights = generate_insights(df, total_spent, total_orders, avg_order, country)
     
     # Display insights in rows of 3
     for i in range(0, len(insights), 3):
@@ -342,19 +362,19 @@ def get_gmail_messages(credentials, country="Pakistan"):
     with tab_wrapped:
         st.markdown("### 🎁 Your Foodpanda Wrapped")
         st.markdown("Experience your food journey like never before!")
-        display_wrapped_experience(df)
-    
+        display_wrapped_experience(df, country)
+
     with tab_diversity:
         st.markdown("### 🎯 Restaurant Diversity Score")
         st.markdown("Are you an explorer or a loyalist?")
         display_diversity_section(df)
-    
+
     with tab_fun:
-        display_fun_comparisons(df)
-    
+        display_fun_comparisons(df, country)
+
     with tab1:
         st.markdown("### Monthly Spending Trend")
-        
+
         # Create monthly aggregation
         monthly_data = df.groupby(df['date'].dt.to_period('M'))\
             .agg({'price': 'sum'})\
@@ -363,7 +383,7 @@ def get_gmail_messages(credentials, country="Pakistan"):
         monthly_data = monthly_data.sort_values('date')
 
         # Create the bar chart
-        fig = create_monthly_spending_chart(monthly_data, 0)
+        fig = create_monthly_spending_chart(monthly_data, 0, currency)
         st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
@@ -547,8 +567,12 @@ def get_gmail_messages(credentials, country="Pakistan"):
         monthly_summary_df = pd.DataFrame(monthly_summary)
         st.dataframe(monthly_summary_df, hide_index=True, use_container_width=True)
 
-def generate_insights(df, total_spent, total_orders, avg_order):
+def generate_insights(df, total_spent, total_orders, avg_order, country="Pakistan"):
     """Generate intelligent insights from the order data."""
+    config = COUNTRIES[country]
+    currency = config["currency"]
+    high_threshold = config["high_avg_threshold"]
+    low_threshold = config["low_avg_threshold"]
     insights = []
     
     # Insight 1: Top 3 Restaurants
@@ -585,7 +609,7 @@ def generate_insights(df, total_spent, total_orders, avg_order):
     insights.append({
         'icon': '💎',
         'title': 'Biggest Splurge',
-        'description': f"PKR {max_order:,.0f} from **{max_restaurant}** was your priciest order!"
+        'description': f"{currency} {max_order:,.0f} from **{max_restaurant}** was your priciest order!"
     })
     
     # Insight 4: Peak Ordering Time
@@ -642,17 +666,17 @@ def generate_insights(df, total_spent, total_orders, avg_order):
             })
     
     # Insight 6: Average Order Value Insight
-    if avg_order > 1500:
+    if avg_order > high_threshold:
         insights.append({
             'icon': '🍽️',
             'title': 'Premium Orders',
-            'description': f"Your average order of PKR {avg_order:,.0f} is above typical!"
+            'description': f"Your average order of {currency} {avg_order:,.0f} is above typical!"
         })
-    elif avg_order < 800:
+    elif avg_order < low_threshold:
         insights.append({
             'icon': '💰',
             'title': 'Budget-Friendly',
-            'description': f"You keep it economical with PKR {avg_order:,.0f} average orders!"
+            'description': f"You keep it economical with {currency} {avg_order:,.0f} average orders!"
         })
     
     # Insight 7: Restaurant by Time of Day
@@ -694,7 +718,7 @@ def generate_insights(df, total_spent, total_orders, avg_order):
     
     return insights  # Return all insights
 
-def display_hero_section(df):
+def display_hero_section(df, currency="PKR"):
     """Display hero section spotlighting favorite restaurant."""
     if df.empty:
         return
@@ -740,8 +764,8 @@ def display_hero_section(df):
             <div class="hero-icon">{emoji}</div>
             <div class="hero-title">Your Go-To Spot: <span class="hero-restaurant">{fav_restaurant}</span></div>
             <div class="hero-stats">
-                <span class="hero-stat-number">{fav_orders}</span> orders · 
-                <span class="hero-stat-number">PKR {fav_spent:,.0f}</span> spent
+                <span class="hero-stat-number">{fav_orders}</span> orders ·
+                <span class="hero-stat-number">{currency} {fav_spent:,.0f}</span> spent
             </div>
             <div class="hero-message">
                 🎯 <strong>{fav_restaurant}</strong> is your #1 choice, representing <strong>{percentage:.1f}%</strong> of all your orders!
@@ -749,10 +773,10 @@ def display_hero_section(df):
         </div>
     """, unsafe_allow_html=True)
 
-def create_monthly_spending_chart(monthly_data, monthly_budget=0):
+def create_monthly_spending_chart(monthly_data, monthly_budget=0, currency="PKR"):
     """Create and return the monthly spending trend chart."""
     fig = go.Figure()
-    
+
     # Add bars
     fig.add_trace(go.Bar(
         x=monthly_data['date'],
@@ -761,11 +785,11 @@ def create_monthly_spending_chart(monthly_data, monthly_budget=0):
         opacity=0.7,
         hovertemplate=(
             "<b>%{x|%B %Y}</b><br>" +
-            "PKR %{y:,.0f}<br>" +
+            f"{currency} " + "%{y:,.0f}<br>" +
             "<extra></extra>"
         )
     ))
-    
+
     # Add budget line if budget is set
     if monthly_budget > 0:
         fig.add_trace(go.Scatter(
@@ -774,7 +798,7 @@ def create_monthly_spending_chart(monthly_data, monthly_budget=0):
             mode='lines',
             name='Budget',
             line=dict(color='green', width=2, dash='dash'),
-            hovertemplate="Budget: PKR %{y:,.0f}<extra></extra>"
+            hovertemplate=f"Budget: {currency} " + "%{y:,.0f}<extra></extra>"
         ))
     
     # Add price labels in thousands above bars
@@ -805,7 +829,7 @@ def create_monthly_spending_chart(monthly_data, monthly_budget=0):
             tickmode='linear',
         ),
         yaxis=dict(
-            title="Amount (PKR)",
+            title=f"Amount ({currency})",
             gridcolor='rgba(128, 128, 128, 0.2)',
             showline=True,
             linewidth=1,
@@ -1004,25 +1028,20 @@ def calculate_diversity_score(df):
         'top_restaurants': top_restaurants
     }
 
-def generate_fun_comparisons(total_spent, total_orders, df):
-    """Generate fun spending comparisons with PKR-relevant equivalents."""
+def generate_fun_comparisons(total_spent, total_orders, df, country="Pakistan"):
+    """Generate fun spending comparisons with locally-relevant equivalents."""
+    config = COUNTRIES[country]
+    currency = config["currency"]
+    pricing = config["pricing"]
+    fuel = config["fuel"]
     comparisons = []
-    
+
     # Calculate days in period
     date_range = (df['date'].max() - df['date'].min()).days + 1
     orders_frequency = date_range / total_orders if total_orders > 0 else 0
-    
-    # PKR-based comparisons (Pakistani context)
-    chai_price = 50  # Average chai price
-    biryani_price = 350  # Average biryani plate
-    movie_ticket = 800  # Average cinema ticket
-    petrol_liter = 280  # Petrol per liter
-    pizza_price = 1500  # Medium pizza
-    iphone_price = 450000  # iPhone 15
-    bike_price = 250000  # Average 70cc bike
-    
+
     # Chai comparison
-    chai_count = int(total_spent / chai_price)
+    chai_count = int(total_spent / pricing["chai"])
     comparisons.append({
         'emoji': '☕',
         'title': 'Chai Equivalent',
@@ -1030,9 +1049,9 @@ def generate_fun_comparisons(total_spent, total_orders, df):
         'unit': 'cups of chai',
         'subtitle': f"That's {chai_count // 30} months of daily chai!"
     })
-    
+
     # Biryani comparison
-    biryani_count = int(total_spent / biryani_price)
+    biryani_count = int(total_spent / pricing["biryani"])
     comparisons.append({
         'emoji': '🍚',
         'title': 'Biryani Counter',
@@ -1040,9 +1059,9 @@ def generate_fun_comparisons(total_spent, total_orders, df):
         'unit': 'plates of biryani',
         'subtitle': f"Enough to feed a cricket team {biryani_count // 11} times!"
     })
-    
+
     # Movie tickets
-    movie_count = int(total_spent / movie_ticket)
+    movie_count = int(total_spent / pricing["movie"])
     comparisons.append({
         'emoji': '🎬',
         'title': 'Cinema Trips',
@@ -1050,18 +1069,18 @@ def generate_fun_comparisons(total_spent, total_orders, df):
         'unit': 'movie tickets',
         'subtitle': f"You could've watched every Marvel movie {movie_count // 35} times!"
     })
-    
+
     # Petrol comparison
-    petrol_liters = int(total_spent / petrol_liter)
-    km_distance = petrol_liters * 15  # Assuming 15km per liter
+    petrol_liters = int(total_spent / pricing["petrol"])
+    km_distance = petrol_liters * fuel["km_per_liter"]
     comparisons.append({
         'emoji': '⛽',
         'title': 'Fuel Fund',
         'value': f'{petrol_liters:,}',
         'unit': 'liters of petrol',
-        'subtitle': f"Drive {km_distance:,} km - that's Karachi to Islamabad {km_distance // 1400} times!"
+        'subtitle': f"Drive {km_distance:,} km - that's {fuel['route_name']} {km_distance // fuel['route_km']} times!"
     })
-    
+
     # Order frequency
     comparisons.append({
         'emoji': '📅',
@@ -1070,8 +1089,9 @@ def generate_fun_comparisons(total_spent, total_orders, df):
         'unit': 'days',
         'subtitle': f"You ordered {total_orders} times in {date_range} days!"
     })
-    
-    # Fun percentage comparisons
+
+    # iPhone comparison
+    iphone_price = pricing["iphone"]
     iphone_percent = (total_spent / iphone_price) * 100
     if iphone_percent >= 100:
         iphone_count = total_spent // iphone_price
@@ -1088,12 +1108,12 @@ def generate_fun_comparisons(total_spent, total_orders, df):
             'title': 'iPhone Progress',
             'value': f'{iphone_percent:.0f}%',
             'unit': 'of an iPhone',
-            'subtitle': f"PKR {iphone_price - total_spent:,.0f} more to buy an iPhone!"
+            'subtitle': f"{currency} {iphone_price - total_spent:,.0f} more to buy an iPhone!"
         })
-    
+
     return comparisons
 
-def get_wrapped_slides_data(df):
+def get_wrapped_slides_data(df, country="Pakistan"):
     """Generate data for the wrapped story slides."""
     total_orders = len(df)
     total_spent = df['price'].sum()
@@ -1128,9 +1148,9 @@ def get_wrapped_slides_data(df):
     
     # Get diversity data
     diversity_data = calculate_diversity_score(df)
-    
+
     # Get comparisons
-    comparisons = generate_fun_comparisons(total_spent, total_orders, df)
+    comparisons = generate_fun_comparisons(total_spent, total_orders, df, country)
     
     return {
         'total_orders': total_orders,
@@ -1163,15 +1183,16 @@ def _restart_wrapped():
     """Callback to restart wrapped experience."""
     st.session_state.wrapped_slide = 0
 
-def display_wrapped_experience(df):
+def display_wrapped_experience(df, country="Pakistan"):
     """Display the Spotify Wrapped-style story experience."""
-    
+    currency = COUNTRIES[country]["currency"]
+
     # Initialize slide state
     if 'wrapped_slide' not in st.session_state:
         st.session_state.wrapped_slide = 0
-    
+
     # Get wrapped data
-    data = get_wrapped_slides_data(df)
+    data = get_wrapped_slides_data(df, country)
     
     # Total slides
     total_slides = 5
@@ -1224,7 +1245,7 @@ def display_wrapped_experience(df):
                         <span class="stat-label">orders</span>
                     </div>
                     <div class="wrapped-stat">
-                        <span class="stat-number">PKR {data['top_restaurant_spent']:,.0f}</span>
+                        <span class="stat-number">{currency} {data['top_restaurant_spent']:,.0f}</span>
                         <span class="stat-label">spent</span>
                     </div>
                 </div>
@@ -1239,7 +1260,7 @@ def display_wrapped_experience(df):
         for comp in comparisons:
             comparison_html += f'<div class="comparison-item"><span class="comp-emoji">{comp["emoji"]}</span><span class="comp-value">{comp["value"]}</span><span class="comp-unit">{comp["unit"]}</span></div>'
         
-        st.markdown(f'<div class="wrapped-slide slide-spending"><div class="wrapped-small-text">You spent a total of...</div><div class="wrapped-big-money">PKR {data["total_spent"]:,.0f}</div><div class="wrapped-equivalents"><div class="equiv-title">That\'s equivalent to:</div>{comparison_html}</div><div class="wrapped-frequency">📅 You ordered every {data["orders_frequency"]:.1f} days on average</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="wrapped-slide slide-spending"><div class="wrapped-small-text">You spent a total of...</div><div class="wrapped-big-money">{currency} {data["total_spent"]:,.0f}</div><div class="wrapped-equivalents"><div class="equiv-title">That\'s equivalent to:</div>{comparison_html}</div><div class="wrapped-frequency">📅 You ordered every {data["orders_frequency"]:.1f} days on average</div></div>', unsafe_allow_html=True)
     
     elif current_slide == 3:
         # Slide 4: Time personality
@@ -1269,7 +1290,7 @@ def display_wrapped_experience(df):
                     </div>
                     <div class="summary-item">
                         <span class="summary-emoji">💰</span>
-                        <span class="summary-value">PKR {data['total_spent']/1000:.1f}K</span>
+                        <span class="summary-value">{currency} {data['total_spent']/1000:.1f}K</span>
                         <span class="summary-label">Spent</span>
                     </div>
                     <div class="summary-item">
@@ -1344,11 +1365,11 @@ def display_diversity_section(df):
             </div>
         """, unsafe_allow_html=True)
 
-def display_fun_comparisons(df):
+def display_fun_comparisons(df, country="Pakistan"):
     """Display the fun spending comparisons section."""
     total_spent = df['price'].sum()
     total_orders = len(df)
-    comparisons = generate_fun_comparisons(total_spent, total_orders, df)
+    comparisons = generate_fun_comparisons(total_spent, total_orders, df, country)
     
     st.markdown("### 💡 Your Spending In Perspective")
     
@@ -1635,6 +1656,7 @@ else:  # Home page
         if 'analysis_data' in st.session_state and st.session_state['analysis_data'] is not None:
             # Display the analysis from stored data
             df = st.session_state['analysis_data']
+            country = st.session_state.get('analysis_country', 'Pakistan')
             currency = st.session_state.get('analysis_currency', 'PKR')
 
             # Calculate date range for display
@@ -1668,11 +1690,11 @@ else:  # Home page
                     st.metric("📆 Daily Average", f"{currency} {daily_average:,.2f}")
             
             # Display Hero Section
-            display_hero_section(df)
-            
+            display_hero_section(df, currency)
+
             # Display Insights Section
             st.markdown("### 💡 Key Insights")
-            insights = generate_insights(df, total_spent, total_orders, avg_order)
+            insights = generate_insights(df, total_spent, total_orders, avg_order, country)
             
             for i in range(0, len(insights), 3):
                 cols = st.columns(3)
@@ -1729,22 +1751,22 @@ else:  # Home page
             with tab_wrapped:
                 st.markdown("### 🎁 Your Foodpanda Wrapped")
                 st.markdown("Experience your food journey like never before!")
-                display_wrapped_experience(df)
-            
+                display_wrapped_experience(df, country)
+
             with tab_diversity:
                 st.markdown("### 🎯 Restaurant Diversity Score")
                 st.markdown("Are you an explorer or a loyalist?")
                 display_diversity_section(df)
-            
+
             with tab_fun:
-                display_fun_comparisons(df)
-            
+                display_fun_comparisons(df, country)
+
             with tab1:
                 st.markdown("### Monthly Spending Trend")
                 monthly_data = df.groupby(df['date'].dt.to_period('M')).agg({'price': 'sum'}).reset_index()
                 monthly_data['date'] = monthly_data['date'].dt.to_timestamp()
                 monthly_data = monthly_data.sort_values('date')
-                fig = create_monthly_spending_chart(monthly_data, 0)
+                fig = create_monthly_spending_chart(monthly_data, 0, currency)
                 st.plotly_chart(fig, use_container_width=True)
             
             with tab2:
