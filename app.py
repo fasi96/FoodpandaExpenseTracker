@@ -491,6 +491,8 @@ def get_gmail_messages(credentials, country="Pakistan"):
         period_stats = timing_df.groupby('time_period').agg({
             'price': ['sum', 'mean']
         }).round(2)
+        # Ensure all 4 periods exist so .loc lookups don't KeyError on sparse data
+        period_stats = period_stats.reindex(['Morning', 'Afternoon', 'Evening', 'Late Night'], fill_value=0)
 
         # Prepare data for radial chart
         hour_counts = timing_df['hour'].value_counts().sort_index()
@@ -1064,7 +1066,9 @@ def prepare_time_analysis_data(df):
     period_stats = timing_df.groupby('time_period').agg({
         'price': ['sum', 'mean']
     }).round(2)
-    
+    # Ensure all 4 periods exist so .loc lookups don't KeyError on sparse data
+    period_stats = period_stats.reindex(['Morning', 'Afternoon', 'Evening', 'Late Night'], fill_value=0)
+
     return timing_df, period_stats
 
 def calculate_diversity_score(df):
@@ -1869,7 +1873,9 @@ else:  # Home page
 
                 timing_df['time_period'] = timing_df['hour'].apply(get_time_period)
                 period_stats = timing_df.groupby('time_period').agg({'price': ['sum', 'mean']}).round(2)
-                
+                # Ensure all 4 periods exist so .loc lookups don't KeyError on sparse data
+                period_stats = period_stats.reindex(['Morning', 'Afternoon', 'Evening', 'Late Night'], fill_value=0)
+
                 hour_counts = timing_df['hour'].value_counts().sort_index()
                 fig_radial = go.Figure()
                 
