@@ -4,3 +4,5 @@ test.ipynb
 creds/
 *.pdf
 __pycache__/
+test_emails/
+test_parse_bd.py

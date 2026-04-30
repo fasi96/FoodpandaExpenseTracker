@@ -43,6 +43,7 @@ COUNTRIES = {
         "sender": "info@mail.foodpanda.com.bd",
         "currency": "Tk",
         "flag": "🇧🇩",
+        "order_subject": "Your order has been placed",
         "high_avg_threshold": 500,
         "low_avg_threshold": 250,
         "pricing": {
@@ -87,8 +88,56 @@ def exchange_code_for_tokens(auth_code):
         raise Exception(f"Failed to exchange code: {response.text}")
     return response.json()
 
+def _extract_text_body(payload):
+    """Walk Gmail's message payload tree to find text/plain (preferred) or text/html.
+
+    The previous implementation took parts[0].body.data blindly, which crashes on
+    promos with embedded images, multipart/related shells, or simple emails with
+    no `parts` key. Walking the tree is robust against all those cases.
+    """
+    plain_b64 = None
+    html_b64 = None
+
+    def walk(node):
+        nonlocal plain_b64, html_b64
+        mime = node.get("mimeType", "")
+        data = (node.get("body") or {}).get("data")
+        if mime == "text/plain" and data and plain_b64 is None:
+            plain_b64 = data
+        elif mime == "text/html" and data and html_b64 is None:
+            html_b64 = data
+        for child in node.get("parts") or []:
+            walk(child)
+
+    walk(payload)
+    chosen = plain_b64 or html_b64
+    if not chosen:
+        return ""
+    try:
+        return base64.urlsafe_b64decode(chosen).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+_FORWARD_MARKERS = (
+    "---------- Forwarded message ---------",
+    "---------- Forwarded message ----------",
+    "Begin forwarded message:",
+)
+
+
+def _strip_forward_wrapper(body):
+    """If body is a forwarded email, return only the original quoted content."""
+    for marker in _FORWARD_MARKERS:
+        idx = body.find(marker)
+        if idx != -1:
+            return body[idx + len(marker):]
+    return body
+
+
 def parse_order_email(decoded_content, country):
     """Extract (price, restaurant) from a Foodpanda order email body for the given country."""
+    decoded_content = _strip_forward_wrapper(decoded_content)
     if country == "Bangladesh":
         # BD format: "Order Total Tk 571.90" and "Store <restaurant name>"
         try:
@@ -136,15 +185,30 @@ def get_emails_from_sender(service, sender_email, country="Pakistan", currency="
     progress_counter = st.empty()
     current_total = st.empty()
     emails_processed = st.empty()
-    
+    skipped_counter = st.empty()
+
     running_total = 0
     processed_count = 0
-    
+    skipped_count = 0
+
     # Rest of the existing setup code...
     now = datetime.datetime.now()
     days_ago = now - datetime.timedelta(days=days)
     after_timestamp = int(time.mktime(days_ago.timetuple()))
-    query = f"from:{sender_email} after:{after_timestamp}"
+
+    # Broaden query to include forwarded emails: Gmail's `from:` only matches
+    # the outer From header, so forwarded receipts (which have the forwarder's
+    # address as From) get missed. We OR in a clause that matches any email
+    # whose subject contains the order subject AND whose body contains the
+    # original sender address — that catches forwards reliably.
+    order_subject = COUNTRIES.get(country, {}).get("order_subject")
+    if order_subject:
+        query = (
+            f'(from:{sender_email} OR (subject:"{order_subject}" "{sender_email}")) '
+            f'after:{after_timestamp}'
+        )
+    else:
+        query = f"from:{sender_email} after:{after_timestamp}"
 
     try:
         results = service.users().messages().list(
@@ -152,7 +216,7 @@ def get_emails_from_sender(service, sender_email, country="Pakistan", currency="
             maxResults=max_results,
             q=query
         ).execute()
-        
+
         messages = results.get("messages", [])
 
         if not messages:
@@ -163,36 +227,52 @@ def get_emails_from_sender(service, sender_email, country="Pakistan", currency="
         data_dict = {'date': [], 'price': [], 'restaurant': []}
 
         for i, msg in enumerate(messages, 1):
-            msg_details = service.users().messages().get(
-                userId="me",
-                id=msg["id"]
-            ).execute()
-            
-            headers = msg_details["payload"]["headers"]
-            date = next((h["value"] for h in headers if h["name"] == "Date"), "No Date")
-            content = msg_details["payload"]["parts"][0]["body"]["data"]
-            decoded_content = base64.urlsafe_b64decode(content).decode('utf-8')
+            try:
+                msg_details = service.users().messages().get(
+                    userId="me",
+                    id=msg["id"]
+                ).execute()
 
-            price, restaurant = parse_order_email(decoded_content, country)
+                headers = msg_details["payload"]["headers"]
+                date = next((h["value"] for h in headers if h["name"] == "Date"), "No Date")
+                decoded_content = _extract_text_body(msg_details["payload"])
 
-            data_dict['date'].append(date)
-            data_dict['price'].append(price)
-            data_dict['restaurant'].append(restaurant)
+                if not decoded_content:
+                    skipped_count += 1
+                    continue
 
-            # Update running totals and progress
-            running_total += price
-            processed_count += 1
+                price, restaurant = parse_order_email(decoded_content, country)
 
-            # Update progress indicators
+                # Skip non-receipt emails (promos, status updates) where the
+                # parser couldn't find an order total.
+                if price == 0:
+                    skipped_count += 1
+                    continue
+
+                data_dict['date'].append(date)
+                data_dict['price'].append(price)
+                data_dict['restaurant'].append(restaurant)
+
+                # Update running totals and progress
+                running_total += price
+                processed_count += 1
+            except Exception:
+                # One bad email shouldn't kill the whole batch.
+                skipped_count += 1
+
+            # Update progress indicators (always, so the user sees movement)
             progress_counter.progress(i / total_messages, f"Processing email {i} of {total_messages}")
             current_total.metric("Running Total", f"{currency} {running_total:,.2f}")
-            emails_processed.metric("Emails Processed", f"{processed_count}/{total_messages}")
+            emails_processed.metric("Orders Found", f"{processed_count}/{total_messages}")
+            if skipped_count:
+                skipped_counter.caption(f"Skipped {skipped_count} non-receipt or unparseable emails")
 
         # Clear progress indicators
         progress_counter.empty()
         current_total.empty()
         emails_processed.empty()
-        
+        skipped_counter.empty()
+
         return data_dict
 
     except Exception as e:
